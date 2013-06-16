@@ -1,4 +1,4 @@
-digi-launcher
+digi-launcher [![Build Status](https://travis-ci.org/ezh/digi-launcher.png?branch=master)](https://travis-ci.org/ezh/digi-launcher)
 =============
 
 OSGi framework launcher for Equinox environment.
