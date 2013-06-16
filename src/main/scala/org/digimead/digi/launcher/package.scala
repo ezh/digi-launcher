@@ -18,12 +18,12 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.digimead.tabuddy.desktop
+package org.digimead.digi
 
 import com.escalatesoft.subcut.inject.NewBindingModule
 
 package object launcher {
   lazy val default = new NewBindingModule(module => {
     module.bind[Launcher.Interface] toModuleSingle { implicit module => new Launcher() }
-  }) ~ launcher.report.default
+  }) ~ report.default
 }

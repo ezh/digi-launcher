@@ -18,7 +18,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.digimead.tabuddy.desktop.launcher
+package org.digimead.digi.launcher
 
 import java.io.File
 import java.io.IOException

@@ -18,10 +18,12 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.digimead.tabuddy.desktop.launcher
+package org.digimead.digi.launcher
 
 import scala.collection.immutable
 
+import org.digimead.digi.launcher.report.Report
+import org.digimead.digi.launcher.report.ReportAppender
 import org.digimead.digi.lib.DependencyInjection
 import org.digimead.digi.lib.log.appender.Appender
 import org.digimead.digi.lib.log.appender.Console
@@ -38,5 +40,5 @@ package object report {
     module.bind[String] identifiedBy "Report.TraceFileExtension" toSingle { "trc" }
     module.bind[immutable.HashSet[Appender]] identifiedBy "Log.BufferedAppenders" toSingle { immutable.HashSet[Appender](Console, ReportAppender) }
   })
-  DependencyInjection.setPersistentInjectable("org.digimead.tabuddy.desktop.launcher.report.Report$DI$")
+  DependencyInjection.setPersistentInjectable("org.digimead.digi.launcher.report.Report$DI$")
 }

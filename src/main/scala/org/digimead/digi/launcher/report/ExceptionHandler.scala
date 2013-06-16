@@ -18,7 +18,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.digimead.tabuddy.desktop.launcher.report
+package org.digimead.digi.launcher.report
 
 import java.lang.Thread.UncaughtExceptionHandler
 

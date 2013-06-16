@@ -11,7 +11,7 @@ DOCUMENTATION
 ### Setup
 
 ```scala
-libraryDependencies += "org.digimead" %% "digi-launcher" % "0.1.0.0"
+libraryDependencies += "org.digimead" %% "digi-launcher" % "0.1.0.1"
 ```
 
 Maven repository

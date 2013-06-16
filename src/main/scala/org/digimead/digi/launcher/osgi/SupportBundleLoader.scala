@@ -18,7 +18,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.digimead.tabuddy.desktop.launcher.osgi
+package org.digimead.digi.launcher.osgi
 
 import java.io.File
 import java.io.IOException
@@ -29,7 +29,7 @@ import scala.Option.option2Iterable
 
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.log.api.Loggable
-import org.digimead.tabuddy.desktop.launcher.ApplicationLauncher
+import org.digimead.digi.launcher.ApplicationLauncher
 import org.eclipse.core.runtime.adaptor.EclipseStarter
 import org.eclipse.core.runtime.adaptor.LocationManager
 import org.eclipse.core.runtime.internal.adaptor.EclipseAdaptorMsg

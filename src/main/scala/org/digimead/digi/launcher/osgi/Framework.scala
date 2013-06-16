@@ -18,7 +18,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.digimead.tabuddy.desktop.launcher.osgi
+package org.digimead.digi.launcher.osgi
 
 import java.util.concurrent.atomic.AtomicBoolean
 

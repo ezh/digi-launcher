@@ -18,7 +18,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.digimead.tabuddy.desktop.launcher
+package org.digimead.digi.launcher
 
 import java.io.File
 import java.net.URI
@@ -29,7 +29,7 @@ import org.digimead.digi.lib.DependencyInjection
 import org.digimead.digi.lib.NonOSGi
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.log.api.Loggable
-import org.digimead.tabuddy.desktop.launcher.report.ExceptionHandler
+import org.digimead.digi.launcher.report.ExceptionHandler
 
 import com.escalatesoft.subcut.inject.BindingModule
 import com.escalatesoft.subcut.inject.Injectable
