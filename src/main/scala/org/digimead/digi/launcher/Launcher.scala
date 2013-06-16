@@ -96,7 +96,7 @@ class Launcher(implicit val bindingModule: BindingModule)
   @log
   def run(waitForTermination: Boolean, shutdownHandler: Option[Runnable]) = applicationLauncher.run(waitForTermination, shutdownHandler)
 
-  /** Get to location that contains org.digimead.tabuddy.desktop.launcher */
+  /** Get to location that contains org.digimead.digi.launcher */
   protected def getLauncherURL(): URL = {
     val loader = classOf[ApplicationLauncher].getClassLoader()
     val classPath = classOf[ApplicationLauncher].getName.replaceAll("""\.""", "/") + ".class"
