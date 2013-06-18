@@ -247,6 +247,8 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
         None
     }
     // Get SWT information if any.
+    // SWT native library is poisoned JVM. Reload of SWT bundle is doomed from the beginning by design
+    //   so we are nothing to be afraid of: like class loader lock.
     val platform = try {
       Option(Class.forName("org.eclipse.swt.SWT").getMethod("getPlatform").invoke(null))
     } catch {

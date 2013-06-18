@@ -69,7 +69,7 @@ resolvers += "digimead-maven" at "http://storage.googleapis.com/maven.repository
 
 libraryDependencies ++= Seq(
     "org.digimead" %% "digi-lib-util" % "0.2.3.3-SNAPSHOT",
-    "org.digimead" %% "digi-lib-test" % "0.2.2.2" % "test",
+    "org.digimead" %% "digi-lib-test" % "0.2.2.3-SNAPSHOT" % "test",
     "org.eclipse" % "org.eclipse.osgi" % "3.8.0.v20120529-1548",
     "org.osgi" % "org.osgi.core" % "5.0.0",
     "org.osgi" % "org.osgi.compendium" % "4.3.1"

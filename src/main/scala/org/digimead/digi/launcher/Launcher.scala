@@ -25,11 +25,11 @@ import java.net.URI
 import java.net.URL
 import java.net.URLClassLoader
 
+import org.digimead.digi.launcher.report.ExceptionHandler
+import org.digimead.digi.lib.Activator
 import org.digimead.digi.lib.DependencyInjection
-import org.digimead.digi.lib.NonOSGi
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.log.api.Loggable
-import org.digimead.digi.launcher.report.ExceptionHandler
 
 import com.escalatesoft.subcut.inject.BindingModule
 import com.escalatesoft.subcut.inject.Injectable
@@ -158,7 +158,7 @@ object Launcher extends Loggable {
     org.digimead.digi.lib.DependencyInjection.reset()
     org.digimead.digi.lib.DependencyInjection(launcherDI)
     // Start JVM wide logging/caching
-    NonOSGi.start()
+    Activator.start()
     val bootstrap = DI.implementation
     // Add bootstrap classes.
 
@@ -190,6 +190,8 @@ object Launcher extends Loggable {
       log.debug(s"Pass protocol handler '${pkg}' -> '${pkgRegEx}'")
       bootstrap.rootClassLoader.addBootDelegationExpression(pkgRegEx)
     })
+    // We always propagate OSGi interfaces itself. The reason: framework is solid.
+    bootstrap.rootClassLoader.addBootDelegationExpression("""^org\.osgi\..*""")
     // We hide anything other(trunks and leaves of the tree) is OSGi cells. They may use
     // their own dependencies even binary incompatible as expected.
 
@@ -202,14 +204,14 @@ object Launcher extends Loggable {
       // Start synchronous.
       bootstrap.run(true, None)
       // Stop JVM wide logging/caching
-      NonOSGi.stop()
+      Activator.stop()
       shutdownHook
     } else {
       // Start asynchronous.
       bootstrap.run(false, Some(new Runnable {
         // Stop JVM wide logging/caching
         def run = {
-          NonOSGi.stop()
+          Activator.stop()
           shutdownHook
         }
       }))

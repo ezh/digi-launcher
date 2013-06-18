@@ -33,7 +33,6 @@ import java.net.URL
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 
-import scala.Option.option2Iterable
 import scala.collection.JavaConversions._
 import scala.collection.immutable
 import scala.collection.mutable
@@ -186,7 +185,8 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   @log
   def run(waitForTermination: Boolean, shutdownHandler: Option[Runnable]) {
     userShutdownHook = shutdownHandler
-    val thread = new Thread(this)
+    // This is also SWT main thread
+    val thread = new Thread(this, "Digi Launcher main thread")
     thread.start()
     ApplicationLauncher.applicationThread = Some(thread)
     if (waitForTermination)
@@ -237,7 +237,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
 
     // 0 iteration - run if everything OK or restart or exit
     // 1 iteration - fix inconsistency of 0 iteration if forcedRestart
-    // 2 iteration - confirm inconsistency of 0 iteration if forcedRestart
+    // 2 iteration - confirm inconsistency of 1 iteration if forcedRestart
     for (retry <- 0 until 3 if running.get) {
       log.info(s"Enter application startup sequence main loop. Retry N: ${retry}.")
       val (framework, shutdownListeners) = frameworkLauncher.launch(Seq(shutdownHandler))
@@ -281,14 +281,13 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
           }
       }
       if (!restart) {
+        val commandProvider = new osgi.Commands(framework.getSystemBundleContext())
+        commandProvider.start()
         // start console
         val consoleMgr = if (console.nonEmpty || debug)
           Some(ConsoleManager.startConsole(framework))
         else
           None
-        // wait for consistency
-        if (!frameworkLauncher.waitForConsitentState(10000, framework))
-          log.error("Unable to stay in inconsistent state more than 10s. Running anyway.")
         consoleMgr.foreach { consoleMgr =>
           // In the case where the built-in console is disabled we should try to start the console bundle.
           try { consoleMgr.checkForConsoleBundle() } catch {
@@ -299,7 +298,10 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         // Run
         //
         log.info("Framework is prepared. Initiate platform application.")
-        try { run(framework) } catch {
+        // wait for consistency
+        if (!frameworkLauncher.waitForConsitentState(10000, framework))
+          log.error("Unable to stay in inconsistent state more than 10s. Running anyway.")
+        try { runDigiApp(framework) } catch {
           case e: Throwable => log.error(e.getMessage, e)
         }
         //
@@ -307,6 +309,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         //
         if (shutdownFrameworkOnExit) {
           log.info("Application is completed. Shutdown framework.")
+          commandProvider.stop()
           framework.getSystemBundleContext().getBundle().stop()
         } else
           log.info("Application is completed.")
@@ -352,6 +355,27 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       log.debug(buffer.toString)
     }
   }
+  protected def runDigiApp(framework: osgi.Framework) {
+    val mainService = "org.digimead.tabuddy.desktop.core.api.Main"
+    if (!ApplicationLauncher.running.get)
+      throw new IllegalStateException(EclipseAdaptorMsg.ECLIPSE_STARTUP_NOT_RUNNING)
+    val context = framework.getSystemBundleContext()
+    Option(context.getServiceReference(mainService)) match {
+      case Some(mainRef) =>
+        Option(context.getService(mainRef)) match {
+          case Some(main) =>
+            // block here
+            log.debug("Start Digi application: " + main)
+            main.asInstanceOf[Runnable].run()
+            log.debug(s"Digi application $main is completed.")
+          case None =>
+            log.error(s"Unable to get service for '$mainService'")
+        }
+        context.ungetService(mainRef)
+      case None =>
+        log.error(s"Unable to get service reference for '$mainService'")
+    }
+  }
   /**
    * Runs the application for which the platform was started. The platform
    * must be running.
@@ -364,7 +388,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
    * @return the result of running the application
    * @throws Exception if anything goes wrong
    */
-  protected def run(framework: osgi.Framework) {
+  protected def runEclipseApp(framework: osgi.Framework) {
     if (!ApplicationLauncher.running.get)
       throw new IllegalStateException(EclipseAdaptorMsg.ECLIPSE_STARTUP_NOT_RUNNING)
     try {
@@ -372,13 +396,35 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       // create the ApplicationLauncher and register it as a service
       val context = framework.getSystemBundleContext()
       val allowRelaunch = FrameworkProperties.getProperty(osgi.Framework.PROP_ALLOW_APPRELAUNCH, "false").toBoolean
-      val log = framework.frameworkAdaptor.getFrameworkLog()
-      val appLauncher = new EclipseAppLauncher(context, allowRelaunch, launchDefault, log)
+      val frameworkLogger = framework.frameworkAdaptor.getFrameworkLog()
+      val appLauncher = new EclipseAppLauncher(context, allowRelaunch, launchDefault, frameworkLogger)
       val appLauncherRegistration = context.registerService(classOf[org.eclipse.osgi.service.runnable.ApplicationLauncher].getName(), appLauncher, null)
       // must start the launcher AFTER service registration because this method
       // blocks and runs the application on the current thread.  This method
       // will return only after the application has stopped.
       appLauncher.start(null)
+      while (ApplicationLauncher.development.get) {
+        // A. org.eclipse.e4.ui.workbench.swt.util.BindingProcessingAddon
+        // never use 'dispose' method
+        //
+        // B. even after stop/start of org.eclipse.equinox.event there is a garbage like:
+        // Exception while dispatching event org.osgi.service.event.Event [topic=org/eclipse/e4/ui...
+        // ...
+        // at org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent(EventManager.java:230)
+        // at org.eclipse.osgi.framework.eventmgr.ListenerQueue.dispatchEventSynchronous(ListenerQueue.java:148)
+        // at org.eclipse.equinox.internal.event.EventAdminImpl.dispatchEvent(EventAdminImpl.java:135)
+        // at org.eclipse.equinox.internal.event.EventAdminImpl.sendEvent(EventAdminImpl.java:78)
+        // at org.eclipse.equinox.internal.event.EventComponent.sendEvent(EventComponent.java:39)
+        // at org.eclipse.e4.ui.services.internal.events.EventBroker.send(EventBroker.java:81)
+        // at org.eclipse.e4.ui.internal.workbench.UIEventPublisher.notifyChanged(UIEventPublisher.java:58)
+        // at org.eclipse.emf.common.notify.impl.BasicNotifierImpl.eNotify(BasicNotifierImpl.java:374)
+        // ...
+        // with invalid handlers that point to disposed objects
+        //
+        // C,D,E .... full pack of shit :-( Eclipse 4 is a big pack of shit. Always the same.
+        appLauncher.reStart(null)
+      }
+      appLauncherRegistration.unregister()
     } catch {
       case e: Exception =>
         log.error("Unable to start application.", e)
@@ -392,10 +438,33 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
 object ApplicationLauncher extends Loggable {
   @volatile private var applicationThread: Option[Thread] = None
   @volatile private var applicationFramework: Option[osgi.Framework] = None
-  /** Flag indicating whether the application is already initialized */
+  /** Flag indicating whether the application is already initialized. */
   private lazy val initialized = new AtomicBoolean(false)
-  /** Flag indicating whether the application is already running */
+  /** Flag indicating whether the application is already running. */
   private lazy val running = new AtomicBoolean(false)
+  /** Flag indicating whether the application in development. */
+  private lazy val development = new AtomicBoolean(false)
+
+  /** Get main SWT/Launcher thread */
+  def getMainThread() = applicationThread
+  /** Enable development mode */
+  @log
+  def developmentOn(): Boolean = development.synchronized {
+    if (development.compareAndSet(false, true)) {
+      log.info("Development mode enabled")
+      development.notifyAll()
+      true
+    } else false
+  }
+  /** Disable development mode */
+  @log
+  def developmentOff(): Boolean = development.synchronized {
+    if (development.compareAndSet(true, false)) {
+      log.info("Development mode enabled")
+      development.notifyAll()
+      true
+    } else false
+  }
 
   case class InitialBundle(
     /** Original representation */

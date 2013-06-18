@@ -66,7 +66,13 @@ class DI extends Loggable {
     log.debug("Initialize dependency injection.")
     val bundleContext = framework.getSystemBundleContext().getBundles().flatMap(bundle =>
       Option(try {
-        (bundle, bundle.adapt(classOf[BundleWiring]).getClassLoader())
+        Option(bundle.adapt(classOf[BundleWiring])) match {
+          case Some(adapted) =>
+            (bundle, adapted.getClassLoader())
+          case None =>
+            log.debug(s"Skip bundle ${bundle}: the classloader is unavailable.")
+            null
+        }
       } catch {
         case e: Throwable =>
           // Is it a BUG in OSGi implementation?
