@@ -45,7 +45,9 @@ class Commands(context: BundleContext) extends CommandProvider with Loggable {
   protected val commandsHelp = mutable.LinkedHashMap(
     "lndevoff" -> Array[String]("disable development mode"),
     "lndevon" -> Array[String]("enable development mode"),
-    "lnstop" -> Array[String]("<application id>", "terminate application"))
+    "lnenable" -> Array[String]("start Digi application via api.Main service"),
+    "lndisable" -> Array[String]("stop Digi application via api.Main service"),
+    "lnstopeapp" -> Array[String]("<application id>", "terminate Eclipse application from SWT thread"))
 
   protected val applicationDescriptors = new ServiceTracker(context, classOf[ApplicationDescriptor], null)
   protected val applicationHandles = new ServiceTracker(context, classOf[ApplicationHandle], null)
@@ -65,13 +67,29 @@ class Commands(context: BundleContext) extends CommandProvider with Loggable {
       intp.println("Enable development mode.")
     else
       intp.println("Development mode is already enabled.")
+  /** Start Digi application */
+  def _lnenable(intp: CommandInterpreter) = if (ApplicationLauncher.digiStart()) {
+    intp.println("Digi application is enabled.")
+    log.error("Digi application is enabled.")
+  } else {
+    intp.println("Digi application is already enabled.")
+    log.error("Digi application is already enabled.")
+  }
+  /** Stop Digi application */
+  def _lndisable(intp: CommandInterpreter) = if (ApplicationLauncher.digiStop(context)) {
+    intp.println("Digi application is disabled.")
+    log.error("Digi application is disabled.")
+  } else {
+    intp.println("Digi application is already disabled.")
+    log.error("Digi application is already disabled.")
+  }
   /**
    * Stop Eclipse application.
    * But there is no working dispose logic in Eclipse 4 at all.
    * After stop you will have a garbage that only usage is waste of space before JVM shutdown.
    * There is no restart possibility. Read E4Aplication source code and compare initialization/deinitialization methods.
    */
-  def _lnstop(intp: CommandInterpreter) {
+  def _lnstopeapp(intp: CommandInterpreter) {
     val appId = intp.nextArgument()
     intp.println("Stop requested for application instance: " + appId)
     log.info("Stop required for application instance: " + appId)

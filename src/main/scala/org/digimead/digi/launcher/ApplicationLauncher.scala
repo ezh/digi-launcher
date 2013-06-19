@@ -47,7 +47,9 @@ import org.eclipse.osgi.framework.debug.FrameworkDebugOptions
 import org.eclipse.osgi.framework.internal.core.ConsoleManager
 import org.eclipse.osgi.framework.internal.core.FrameworkProperties
 import org.osgi.framework.Bundle
+import org.osgi.framework.BundleContext
 import org.osgi.framework.BundleException
+import org.osgi.util.tracker.ServiceTracker
 
 import com.escalatesoft.subcut.inject.BindingModule
 import com.escalatesoft.subcut.inject.Injectable
@@ -120,6 +122,8 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   lazy val debugLogRedirector = new ApplicationLauncher.DebugLogRedirector()
   /** Platform debug log redirector thread */
   lazy val debugLogRedirectorThread = new Thread(debugLogRedirector, "Platform debug log redirector")
+  /** Digi application entry point interface. */
+  val digiMainService = "org.digimead.tabuddy.desktop.core.api.Main"
   /** Framework launcher instance loaded with current class loader */
   val frameworkLauncher: FrameworkLauncher = getClass.getClassLoader().
     loadClass(frameworkLauncherClass.getName).newInstance().asInstanceOf[FrameworkLauncher]
@@ -355,26 +359,37 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       log.debug(buffer.toString)
     }
   }
+  /** Run Digi application. */
+  @log
+  protected def digiRun(context: BundleContext, timeout: Int) {
+    val serviceTracker = new ServiceTracker[AnyRef, AnyRef](context, digiMainService, null)
+    serviceTracker.open()
+    Option(serviceTracker.waitForService(timeout)) match {
+      case Some(main: Runnable) =>
+        // block here
+        log.debug("Start Digi application: " + main)
+        main.run()
+        log.debug(s"Digi application $main is completed.")
+      case Some(_) =>
+        log.error(s"Unable to process incorrect service '$digiMainService'")
+      case None =>
+        log.error(s"Unable to get service for '$digiMainService'")
+    }
+    serviceTracker.close()
+  }
+  /** Digi application main loop. */
   protected def runDigiApp(framework: osgi.Framework) {
-    val mainService = "org.digimead.tabuddy.desktop.core.api.Main"
+    ApplicationLauncher.digiApp.set(true)
+    val wait = 60000
     if (!ApplicationLauncher.running.get)
       throw new IllegalStateException(EclipseAdaptorMsg.ECLIPSE_STARTUP_NOT_RUNNING)
     val context = framework.getSystemBundleContext()
-    Option(context.getServiceReference(mainService)) match {
-      case Some(mainRef) =>
-        Option(context.getService(mainRef)) match {
-          case Some(main) =>
-            // block here
-            log.debug("Start Digi application: " + main)
-            main.asInstanceOf[Runnable].run()
-            log.debug(s"Digi application $main is completed.")
-          case None =>
-            log.error(s"Unable to get service for '$mainService'")
-        }
-        context.ungetService(mainRef)
-      case None =>
-        log.error(s"Unable to get service reference for '$mainService'")
-    }
+    digiRun(context, wait)
+    while (ApplicationLauncher.development.get())
+      if (ApplicationLauncher.digiApp.get)
+        digiRun(context, wait)
+      else
+        ApplicationLauncher.development.synchronized { ApplicationLauncher.development.wait() }
   }
   /**
    * Runs the application for which the platform was started. The platform
@@ -438,12 +453,15 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
 object ApplicationLauncher extends Loggable {
   @volatile private var applicationThread: Option[Thread] = None
   @volatile private var applicationFramework: Option[osgi.Framework] = None
+  @volatile private var digiMainService = "org.digimead.tabuddy.desktop.core.api.Main"
   /** Flag indicating whether the application is already initialized. */
   private lazy val initialized = new AtomicBoolean(false)
   /** Flag indicating whether the application is already running. */
   private lazy val running = new AtomicBoolean(false)
   /** Flag indicating whether the application in development. */
   private lazy val development = new AtomicBoolean(false)
+  /** Flag indicating whether the Digi application is active. */
+  private lazy val digiApp = new AtomicBoolean(false)
 
   /** Get main SWT/Launcher thread */
   def getMainThread() = applicationThread
@@ -464,6 +482,39 @@ object ApplicationLauncher extends Loggable {
       development.notifyAll()
       true
     } else false
+  }
+  /** Start Digi application */
+  @log
+  def digiStart(): Boolean = synchronized {
+    if (digiApp.compareAndSet(false, true)) {
+      development.synchronized { development.notifyAll() }
+      true
+    } else
+      false
+  }
+  /** Stop Digi application. */
+  @log
+  def digiStop(context: BundleContext, force: Boolean = false): Boolean = synchronized {
+    if (digiApp.compareAndSet(true, false) || force) {
+      digiApp.set(false)
+      val serviceTracker = new ServiceTracker[AnyRef, AnyRef](context, digiMainService, null)
+      serviceTracker.open()
+      Option(serviceTracker.getService()) match {
+        case Some(main: Runnable) => try {
+          main.asInstanceOf[{ def stop() }].stop()
+        } catch {
+          case e: Throwable =>
+            log.error(s"Unable to process incorrect service '$digiMainService': " + e.getMessage(), e)
+        }
+        case Some(_) =>
+          log.error(s"Unable to process incorrect service '$digiMainService'")
+        case None =>
+          log.error(s"Unable to get service for '$digiMainService'")
+      }
+      serviceTracker.close()
+      true
+    } else
+      false
   }
 
   case class InitialBundle(
