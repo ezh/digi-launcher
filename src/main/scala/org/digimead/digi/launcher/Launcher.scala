@@ -38,7 +38,9 @@ import language.reflectiveCalls
 
 /**
  * Lightweight OSGi wrapper that starts Digi application.
- * There are no private/final members - rewrite or extend it if needed. It is easy.
+ * There are no private/final members like
+ *   public _final_ class EclipseStorageHook crap from Equinox team
+ * Rewrite or extend it if needed. It is easy.
  */
 class Launcher(implicit val bindingModule: BindingModule)
   extends Launcher.Interface with Injectable with Loggable {

@@ -33,6 +33,8 @@ import java.net.URL
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 
+import scala.Array.canBuildFrom
+import scala.Option.option2Iterable
 import scala.collection.JavaConversions._
 import scala.collection.immutable
 import scala.collection.mutable
@@ -54,13 +56,14 @@ import org.osgi.util.tracker.ServiceTracker
 import com.escalatesoft.subcut.inject.BindingModule
 import com.escalatesoft.subcut.inject.Injectable
 
+import language.reflectiveCalls
+
 /**
  * Application launcher spawned from RootClassLoader.
  */
 class ApplicationLauncher(implicit val bindingModule: BindingModule)
   extends Loggable with Injectable with Runnable {
-  assert(getClass.getClassLoader.getClass.getName() == classOf[RootClassLoader].getName,
-    "Framework loader may be instantiated only from Framework class loader")
+  checkBeforeInitialization
 
   //
   // DI parameters
@@ -138,9 +141,18 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   /** Location of script with DI settings. */
   @volatile protected var applicationDIScript: Option[File] = None
 
-  assert(bundles.isDirectory() && bundles.canRead() && bundles.isAbsolute(), s"Bundles directory '${bundles}' is inaccessable or relative.")
-  assert(data.isDirectory() && data.canRead() && data.isAbsolute(), s"Data directory '${data}' is inaccessable or relative.")
+  checkAfterInitialization
 
+  /** Validate class state before initialization. */
+  def checkBeforeInitialization {
+    assert(getClass.getClassLoader.getClass.getName() == classOf[RootClassLoader].getName,
+      "Framework loader may be instantiated only from Framework class loader")
+  }
+  /** Validate class state after initialization. */
+  def checkAfterInitialization {
+    assert(bundles.isDirectory() && bundles.canRead() && bundles.isAbsolute(), s"Bundles directory '${bundles}' is inaccessable or relative.")
+    assert(data.isDirectory() && data.canRead() && data.isAbsolute(), s"Data directory '${data}' is inaccessable or relative.")
+  }
   /** Prepare OSGi framework settings. */
   @log
   def initialize(applicationDIScript: Option[File]) = if (ApplicationLauncher.initialized.compareAndSet(false, true)) {
@@ -377,6 +389,58 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     }
     serviceTracker.close()
   }
+  /** Collect all bundles that are directories, save lastModified for each file in bundle. */
+  def initializeDevelopmentMonitor(framework: osgi.Framework): immutable.HashMap[Long, immutable.HashMap[File, Long]] = {
+    log.debug("Development mode. Initialize monitor.")
+    val context = framework.getSystemBundleContext()
+    val entries = context.getBundles().map { bundle =>
+      try {
+        val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
+        if (location.isDirectory()) {
+          log.debug(s"Development mode. Add ${bundle.getSymbolicName()} to monitor.")
+          Some(bundle.getBundleId() -> immutable.HashMap(
+            recursiveListFiles(location).map(file => (file, file.lastModified())): _*))
+        } else
+          None
+      }
+    }
+    immutable.HashMap(entries.flatten: _*)
+  }
+  /** Refresh bundle if there is at least one modified file. */
+  def processDevelopmentMonitor(monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]], framework: osgi.Framework): Boolean = {
+    val context = framework.getSystemBundleContext()
+    val modified = monitor.keys.flatMap { id =>
+      Option(framework.getBundle(id)) match {
+        case Some(bundle) =>
+          val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
+          if (location.isDirectory()) {
+            val newState = immutable.HashMap(recursiveListFiles(location).map(file => (file, file.lastModified())): _*)
+            val oldState = monitor(id)
+            if (newState.size != oldState.size)
+              Some(id)
+            else {
+              if (newState.forall { case (file, time) => oldState(file) == time }) {
+                log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is unmodified.")
+                None
+              } else {
+                log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is changed.")
+                Some(id)
+              }
+            }
+          } else {
+            log.warn(s"Development mode. Unable to find bundle $id directory: " + location)
+            Some(id)
+          }
+        case None =>
+          log.warn(s"Development mode. Bundle $id is absent.")
+          Some(id)
+      }
+    }
+    if (modified.nonEmpty)
+      frameworkLauncher.refreshBundles(modified, framework)
+    else
+      false
+  }
   /** Digi application main loop. */
   protected def runDigiApp(framework: osgi.Framework) {
     ApplicationLauncher.digiApp.set(true)
@@ -385,11 +449,21 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       throw new IllegalStateException(EclipseAdaptorMsg.ECLIPSE_STARTUP_NOT_RUNNING)
     val context = framework.getSystemBundleContext()
     digiRun(context, wait)
-    while (ApplicationLauncher.development.get())
+    /*
+     * Development mode
+     */
+    // map for directory bundles: bundle id -> map(file in directory, modification time)
+    var monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]] = null
+    while (ApplicationLauncher.development.get()) {
+      if (monitor == null)
+        monitor = initializeDevelopmentMonitor(framework)
       if (ApplicationLauncher.digiApp.get)
         digiRun(context, wait)
       else
         ApplicationLauncher.development.synchronized { ApplicationLauncher.development.wait() }
+      if (processDevelopmentMonitor(monitor, framework))
+        monitor = initializeDevelopmentMonitor(framework)
+    }
   }
   /**
    * Runs the application for which the platform was started. The platform
@@ -447,6 +521,16 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         try { frameworkLauncher.logUnresolvedBundles(framework) } catch { case e: Throwable => }
         throw e
     }
+  }
+
+  // We are unable to use FileUtil here because of class loader restriction.
+  /**
+   * Recursively list files.
+   * @param f Initial directory
+   */
+  private def recursiveListFiles(f: File): Array[File] = {
+    val these = f.listFiles
+    these ++ these.filter(_.isDirectory).flatMap(recursiveListFiles(_))
   }
 }
 

@@ -39,6 +39,7 @@ import org.eclipse.core.runtime.internal.adaptor.EclipseAdaptorMsg
 import org.eclipse.core.runtime.internal.adaptor.MessageHelper
 import org.eclipse.osgi.framework.adaptor.FrameworkAdaptor
 import org.eclipse.osgi.framework.internal.core.ConsoleManager
+import org.eclipse.osgi.framework.internal.core.ConsoleMsg
 import org.eclipse.osgi.framework.internal.core.FrameworkProperties
 import org.eclipse.osgi.framework.log.FrameworkLogEntry
 import org.eclipse.osgi.internal.baseadaptor.BaseStorageHook
@@ -59,6 +60,7 @@ import org.osgi.service.log.LogEntry
 import org.osgi.service.log.LogListener
 import org.osgi.service.log.LogReaderService
 import org.osgi.service.log.LogService
+import org.osgi.service.packageadmin.PackageAdmin
 import org.osgi.util.tracker.ServiceTracker
 import org.osgi.util.tracker.ServiceTrackerCustomizer
 import org.slf4j.LoggerFactory
@@ -258,6 +260,31 @@ class FrameworkLauncher extends BundleListener with Loggable {
       }
     if (allChildren.size() > 0)
       logService.log(new FrameworkLogEntry(FrameworkAdaptor.FRAMEWORK_SYMBOLICNAME, FrameworkLogEntry.WARNING, 0, EclipseAdaptorMsg.ECLIPSE_STARTUP_ALL_NOT_RESOLVED, 0, null, allChildren.toArray(new Array[FrameworkLogEntry](allChildren.size()))))
+  }
+  /** Refresh bundle. */
+  @log
+  def refreshBundles(id: Iterable[Long], framework: osgi.Framework): Boolean = {
+    val context = framework.getSystemBundleContext()
+    Option(context.getServiceReference(classOf[PackageAdmin])) match {
+      case Some(packageAdminRef) =>
+        try {
+          Option(context.getService(packageAdminRef)).map { packageAdmin =>
+            val bundles = id.map(context.getBundle)
+            if (bundles.isEmpty) {
+              log.error(ConsoleMsg.CONSOLE_INVALID_BUNDLE_SPECIFICATION_ERROR)
+              false
+            } else {
+              packageAdmin.refreshPackages(bundles.toArray)
+              true
+            }
+          } getOrElse false
+        } finally {
+          context.ungetService(packageAdminRef)
+        }
+      case None =>
+        log.error(ConsoleMsg.CONSOLE_CAN_NOT_REFRESH_NO_PACKAGE_ADMIN_ERROR)
+        false
+    }
   }
   /** Create bridge between OSGi log service and application logger */
   @log
