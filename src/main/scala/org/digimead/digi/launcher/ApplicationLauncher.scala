@@ -51,6 +51,7 @@ import org.eclipse.osgi.framework.internal.core.FrameworkProperties
 import org.osgi.framework.Bundle
 import org.osgi.framework.BundleContext
 import org.osgi.framework.BundleException
+import org.osgi.framework.wiring.BundleWiring
 import org.osgi.util.tracker.ServiceTracker
 
 import com.escalatesoft.subcut.inject.BindingModule
@@ -315,6 +316,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         //
         // Run
         //
+        ApplicationLauncher.applicationFramework = Some(framework)
         log.info("Framework is prepared. Initiate platform application.")
         // wait for consistency
         if (!frameworkLauncher.waitForConsitentState(maximumDuration, framework))
@@ -322,6 +324,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         try { runDigiApp(framework) } catch {
           case e: Throwable => log.error(e.getMessage, e)
         }
+        ApplicationLauncher.applicationFramework = None
         //
         // Shutdown
         //
@@ -341,6 +344,16 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       }
     }
     userShutdownHook.foreach(hook => new Thread(hook).start())
+  }
+  /** Get bundle class. */
+  @log
+  def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_] = {
+    val framework = ApplicationLauncher.applicationFramework getOrElse
+      { throw new IllegalStateException("OSGi framework is not ready.") }
+    val bundle = framework.getSystemBundleContext().getBundles.find(_.getSymbolicName() == bundleSymbolicName) getOrElse
+      { throw new IllegalStateException(s"OSGi bundle with symbolic name '$bundleSymbolicName' is not found.") }
+    val classLoader = bundle.adapt(classOf[BundleWiring]).getClassLoader()
+    classLoader.loadClass(singletonClassName)
   }
 
   /** Prepare OSGi framework. */

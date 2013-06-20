@@ -82,6 +82,7 @@ class Launcher(implicit val bindingModule: BindingModule)
     System.out.println("\t data directory: " + data)
     constructor.newInstance(bindingModule)
   }.asInstanceOf[{
+    def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_]
     def initialize(applicationDI: Option[File])
     def run(waitForTermination: Boolean, shutdownHandler: Option[Runnable])
   }]
@@ -96,7 +97,8 @@ class Launcher(implicit val bindingModule: BindingModule)
   }
   /** Run OSGi framework and application. */
   @log
-  def run(waitForTermination: Boolean, shutdownHandler: Option[Runnable]) = applicationLauncher.run(waitForTermination, shutdownHandler)
+  def run(waitForTermination: Boolean, shutdownHandler: Option[Runnable]) =
+    applicationLauncher.run(waitForTermination, shutdownHandler)
 
   /** Get to location that contains org.digimead.digi.launcher */
   protected def getLauncherURL(): URL = {
@@ -128,6 +130,9 @@ class Launcher(implicit val bindingModule: BindingModule)
         throw new IllegalStateException(s"Unable get location of ${Launcher.OSGiPackage} from unknown class loader " + loader.getClass())
     }
   }
+  /** Get bundle class. */
+  def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_] =
+    applicationLauncher.getBundleClass(bundleSymbolicName, singletonClassName)
 }
 
 /**
@@ -141,6 +146,8 @@ class Launcher(implicit val bindingModule: BindingModule)
  *             DigiApplication                  (Level7. Bingo!)
  */
 object Launcher extends Loggable {
+  /** Current launcher instance. */
+  @volatile private var launcher: Option[Launcher.Interface] = None
   /** Name of base package/jar with OSGi framework */
   val OSGiPackage = "org.eclipse.osgi"
 
@@ -162,6 +169,7 @@ object Launcher extends Loggable {
     // Start JVM wide logging/caching
     Activator.start()
     val bootstrap = DI.implementation
+    launcher = Some(bootstrap)
     // Add bootstrap classes.
 
     // Important. Basis.
@@ -206,6 +214,7 @@ object Launcher extends Loggable {
       // Start synchronous.
       bootstrap.run(true, None)
       // Stop JVM wide logging/caching
+      launcher = None
       Activator.stop()
       shutdownHook
     } else {
@@ -213,12 +222,25 @@ object Launcher extends Loggable {
       bootstrap.run(false, Some(new Runnable {
         // Stop JVM wide logging/caching
         def run = {
+          launcher = None
           Activator.stop()
           shutdownHook
         }
       }))
     }
   }
+  /** Get bundle singleton. */
+  def singleton(bundleSymbolicName: String, singletonClassName: String): AnyRef = {
+    val launcher = this.launcher getOrElse
+      { throw new IllegalStateException("Launcher is not initialized.") }
+    val clazz = launcher.getBundleClass(bundleSymbolicName, singletonClassName)
+    val declaredFields = clazz.getDeclaredFields().toList
+    declaredFields.find(field => field.getName() == "MODULE$") match {
+      case Some(modField) => modField.get(clazz)
+      case None => clazz.newInstance().asInstanceOf[AnyRef]
+    }
+  }
+
   /**
    * Launcher interface
    */
@@ -232,6 +254,8 @@ object Launcher extends Loggable {
     def initialize(applicationDIScript: Option[File])
     /** Run OSGi framework and application. */
     def run(waitForTermination: Boolean, shutdownHandler: Option[Runnable])
+    /** Get bundle class. */
+    def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_]
   }
   /**
    * Dependency injection routines.

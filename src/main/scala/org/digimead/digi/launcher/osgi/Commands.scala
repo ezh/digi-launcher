@@ -21,6 +21,9 @@
 package org.digimead.digi.launcher.osgi
 
 import scala.collection.mutable
+
+import org.digimead.digi.launcher.ApplicationLauncher
+import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.log.api.Loggable
 import org.eclipse.osgi.framework.console.CommandInterpreter
 import org.eclipse.osgi.framework.console.CommandProvider
@@ -32,7 +35,6 @@ import org.osgi.service.application.ApplicationDescriptor
 import org.osgi.service.application.ApplicationHandle
 import org.osgi.service.application.ScheduledApplication
 import org.osgi.util.tracker.ServiceTracker
-import org.digimead.digi.launcher.ApplicationLauncher
 
 class Commands(context: BundleContext) extends CommandProvider with Loggable {
   protected val LAUNCHABLE_APP_FILTER = "(&(application.locked=false)(application.launchable=true)(application.visible=true))"
