@@ -263,7 +263,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
   }
   /** Refresh bundle. */
   @log
-  def refreshBundles(id: Iterable[Long], framework: osgi.Framework): Boolean = {
+  def refreshBundles(id: Iterable[Long], singleOperationTimeout: Int, framework: osgi.Framework): Boolean = {
     val context = framework.getSystemBundleContext()
     Option(context.getServiceReference(classOf[PackageAdmin])) match {
       case Some(packageAdminRef) =>
@@ -274,7 +274,35 @@ class FrameworkLauncher extends BundleListener with Loggable {
               log.error(ConsoleMsg.CONSOLE_INVALID_BUNDLE_SPECIFICATION_ERROR)
               false
             } else {
+              val toStop = bundles.flatMap(b => if (b.getState() == Bundle.ACTIVE) Some(b) else None)
+              log.debug(s"Stop bundles (${toStop.map(_.getSymbolicName()).mkString(",")}).")
+              toStop.foreach(_.stop)
+              waitForState(singleOperationTimeout, toStop.toSeq, (states) =>
+                states.forall(s => s != Bundle.ACTIVE && s != Bundle.STOPPING))
+              if (!waitForConsitentState(singleOperationTimeout, framework))
+                log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
+              log.debug(s"Refresh bundles (${bundles.map(_.getSymbolicName()).mkString(",")}).")
               packageAdmin.refreshPackages(bundles.toArray)
+              if (!waitForConsitentState(singleOperationTimeout, framework))
+                log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
+              // waiting for start up to 'singleOperationTimeout'
+              val toStart = context.getBundles().filter { b =>
+                val exists = toStop.exists(_.getSymbolicName() == b.getSymbolicName())
+                val lazyPolicy = !framework.hasLazyActivationPolicy(b)
+                exists && lazyPolicy
+              }
+              log.debug(s"Waiting for bundles (${toStart.map(_.getSymbolicName()).mkString(",")}).")
+              toStart.foreach(_.start) // there is nothing critical if we try to start bundle that is already starting
+              waitForState(singleOperationTimeout, toStart.toSeq, (states) => states.forall(_ == Bundle.ACTIVE))
+              // try to start if something wrong
+              val notStarted = toStart.filter(b => b.getState() != Bundle.ACTIVE && b.getState() != Bundle.INSTALLED)
+              if (notStarted.nonEmpty) {
+                log.warn(s"There are not started bundles, try to start them. Process: " +
+                  notStarted.map(b => b.getSymbolicName() + ": " + b.getState()).mkString(","))
+                notStarted.foreach(_.start)
+                if (!waitForConsitentState(singleOperationTimeout, framework))
+                  log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
+              }
               true
             }
           } getOrElse false
@@ -341,6 +369,16 @@ class FrameworkLauncher extends BundleListener with Loggable {
         Thread.sleep(frame) // Something happen, wait 100ms
     }
     isConsistent
+  }
+  /** Wait for the specific state of bundle sequence. */
+  @log
+  def waitForState(timeout: Int, bundles: Seq[Bundle], fInverse: Seq[Int] => Boolean) {
+    val frame = 400 // 0.4s for decision
+    val ts = System.currentTimeMillis() + timeout
+    while (!fInverse(bundles.map(_.getState())) && (ts - System.currentTimeMillis > 0)) {
+      val timeout = ts - System.currentTimeMillis
+      lastBundleEvent.synchronized { lastBundleEvent.wait(timeout) }
+    }
   }
 
   /**

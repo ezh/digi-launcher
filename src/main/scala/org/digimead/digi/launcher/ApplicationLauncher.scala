@@ -105,6 +105,8 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   val instanceArea = injectOptional[URL](LocationManager.PROP_INSTANCE_AREA)
   /** The launcher location. */
   val launcher = injectOptional[String](osgi.Framework.PROP_LAUNCHER)
+  /** Maximum operation (start/stop/restart) duration */
+  val maximumDuration = injectOptional[Int]("Launcher.Maximum.Duration") getOrElse 10000
   /** The nationality/language. */
   val nl = injectOptional[String](org.eclipse.core.runtime.adaptor.EclipseStarter.PROP_NL)
   /** The locale extensions. */
@@ -277,12 +279,12 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
           if (retry < 2) {
             // cannot continue; loadBundles caused refreshPackages to shutdown the framework
             log.info("Restart initiated: loadBundles caused refreshPackages to shutdown the framework.")
-            if (!frameworkLauncher.waitForConsitentState(10000, framework))
-              log.error("Unable to stay in inconsistent state more than 10s. Shutting down anyway.")
+            if (!frameworkLauncher.waitForConsitentState(maximumDuration, framework))
+              log.errorWhere(s"Unable to stay in inconsistent state more than ${maximumDuration / 1000}s. Shutting down anyway.")
             // we are restarting, not shutting down, remove listeners before restart
             frameworkLauncher.finish(shutdownListeners, None, framework)
             framework.close()
-            framework.waitForStop(10000)
+            framework.waitForStop(maximumDuration)
             log.info("OSGi framework is stopped. Restart.")
             true
           } else {
@@ -315,8 +317,8 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         //
         log.info("Framework is prepared. Initiate platform application.")
         // wait for consistency
-        if (!frameworkLauncher.waitForConsitentState(10000, framework))
-          log.error("Unable to stay in inconsistent state more than 10s. Running anyway.")
+        if (!frameworkLauncher.waitForConsitentState(maximumDuration, framework))
+          log.errorWhere(s"Unable to stay in inconsistent state more than ${maximumDuration / 1000}s. Running anyway.")
         try { runDigiApp(framework) } catch {
           case e: Throwable => log.error(e.getMessage, e)
         }
@@ -436,9 +438,10 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
           Some(id)
       }
     }
-    if (modified.nonEmpty)
-      frameworkLauncher.refreshBundles(modified, framework)
-    else
+    if (modified.nonEmpty) {
+      log.warn(s"Development mode. Refresh bundles with IDs (${modified.mkString(", ")})")
+      frameworkLauncher.refreshBundles(modified, maximumDuration, framework)
+    } else
       false
   }
   /** Digi application main loop. */
@@ -457,9 +460,9 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     while (ApplicationLauncher.development.get()) {
       if (monitor == null)
         monitor = initializeDevelopmentMonitor(framework)
-      if (ApplicationLauncher.digiApp.get)
-        digiRun(context, wait)
-      else
+      if (ApplicationLauncher.digiApp.get) {
+        try { digiRun(context, wait) } catch { case e: Throwable => log.error("Digi application halted: " + e.getMessage, e); Thread.sleep(1000) }
+      } else
         ApplicationLauncher.development.synchronized { ApplicationLauncher.development.wait() }
       if (processDevelopmentMonitor(monitor, framework))
         monitor = initializeDevelopmentMonitor(framework)

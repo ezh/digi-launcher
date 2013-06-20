@@ -27,23 +27,18 @@ import java.net.URL
 import scala.Array.canBuildFrom
 import scala.Option.option2Iterable
 
+import org.digimead.digi.launcher.ApplicationLauncher
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.log.api.Loggable
-import org.digimead.digi.launcher.ApplicationLauncher
-import org.eclipse.core.runtime.adaptor.EclipseStarter
 import org.eclipse.core.runtime.adaptor.LocationManager
 import org.eclipse.core.runtime.internal.adaptor.EclipseAdaptorMsg
 import org.eclipse.core.runtime.internal.adaptor.Semaphore
 import org.eclipse.osgi.framework.adaptor.FilePath
 import org.eclipse.osgi.framework.adaptor.StatusException
-import org.eclipse.osgi.framework.internal.core.{ Constants => EConstants }
-import org.eclipse.osgi.framework.internal.core.FrameworkProperties
-import org.eclipse.osgi.util.ManifestElement
 import org.eclipse.osgi.util.NLS
 import org.osgi.framework.Bundle
 import org.osgi.framework.BundleEvent
 import org.osgi.framework.BundleException
-import org.osgi.framework.Constants
 import org.osgi.framework.FrameworkEvent
 import org.osgi.framework.FrameworkListener
 import org.osgi.framework.SynchronousBundleListener
@@ -204,7 +199,7 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends Logg
                 }
             }
             // only check for lazy activation header if this is a newly installed bundle and is not marked for persistent start
-            if (!initialBundle.start && hasLazyActivationPolicy(bundle))
+            if (!initialBundle.start && framework.hasLazyActivationPolicy(bundle))
               lazyActivationBundles = lazyActivationBundles :+ bundle
             bundle
           }
@@ -297,43 +292,6 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends Logg
     }
   }.flatten
 
-  /** Check for lazy activation header. */
-  protected def hasLazyActivationPolicy(target: Bundle): Boolean = {
-    // check the bundle manifest to see if it defines a lazy activation policy
-    val headers = target.getHeaders(""); //$NON-NLS-1$
-    // first check to see if this is a fragment bundle
-    val fragmentHost = headers.get(Constants.FRAGMENT_HOST)
-    if (fragmentHost != null)
-      return false // do not activate fragment bundles
-    // look for the OSGi defined Bundle-ActivationPolicy header
-    val activationPolicy = headers.get(Constants.BUNDLE_ACTIVATIONPOLICY)
-    try {
-      if (activationPolicy != null) {
-        val elements = ManifestElement.parseHeader(Constants.BUNDLE_ACTIVATIONPOLICY, activationPolicy);
-        if (elements != null && elements.length > 0) {
-          // if the value is "lazy" then it has a lazy activation poliyc
-          if (Constants.ACTIVATION_LAZY.equals(elements(0).getValue()))
-            return true
-        }
-      } else {
-        // check for Eclipse specific lazy start headers "Eclipse-LazyStart" and "Eclipse-AutoStart"
-        val eclipseLazyStart = headers.get(EConstants.ECLIPSE_LAZYSTART)
-        val elements = ManifestElement.parseHeader(EConstants.ECLIPSE_LAZYSTART, eclipseLazyStart)
-        if (elements != null && elements.length > 0) {
-          // if the value is true then it is lazy activated
-          if ("true".equals(elements(0).getValue())) //$NON-NLS-1$
-            return true;
-          // otherwise it is only lazy activated if it defines an exceptions directive.
-          else if (elements(0).getDirective("exceptions") != null) //$NON-NLS-1$
-            return true;
-        }
-      }
-    } catch {
-      case e: BundleException =>
-      // ignore this
-    }
-    return false;
-  }
   /**
    * Returns a URL which is equivalent to the given URL relative to the
    * specified base URL. Works only for file: URLs

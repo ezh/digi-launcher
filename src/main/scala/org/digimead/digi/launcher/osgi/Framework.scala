@@ -24,10 +24,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 import org.digimead.digi.lib.log.api.Loggable
 import org.eclipse.osgi.framework.adaptor.FrameworkAdaptor
+import org.eclipse.osgi.framework.internal.core.{ Constants => EConstants }
 import org.eclipse.osgi.framework.internal.core.FrameworkProperties
+import org.eclipse.osgi.util.ManifestElement
 import org.osgi.framework.Bundle
 import org.osgi.framework.BundleEvent
+import org.osgi.framework.BundleException
 import org.osgi.framework.BundleListener
+import org.osgi.framework.Constants
 import org.osgi.framework.SynchronousBundleListener
 
 /*
@@ -40,6 +44,43 @@ import org.osgi.framework.SynchronousBundleListener
 
 class Framework(val frameworkAdaptor: FrameworkAdaptor)
   extends org.eclipse.osgi.framework.internal.core.Framework(frameworkAdaptor) {
+  /** Check for lazy activation header. */
+  def hasLazyActivationPolicy(target: Bundle): Boolean = {
+    // check the bundle manifest to see if it defines a lazy activation policy
+    val headers = target.getHeaders(""); //$NON-NLS-1$
+    // first check to see if this is a fragment bundle
+    val fragmentHost = headers.get(Constants.FRAGMENT_HOST)
+    if (fragmentHost != null)
+      return false // do not activate fragment bundles
+    // look for the OSGi defined Bundle-ActivationPolicy header
+    val activationPolicy = headers.get(Constants.BUNDLE_ACTIVATIONPOLICY)
+    try {
+      if (activationPolicy != null) {
+        val elements = ManifestElement.parseHeader(Constants.BUNDLE_ACTIVATIONPOLICY, activationPolicy);
+        if (elements != null && elements.length > 0) {
+          // if the value is "lazy" then it has a lazy activation poliyc
+          if (Constants.ACTIVATION_LAZY.equals(elements(0).getValue()))
+            return true
+        }
+      } else {
+        // check for Eclipse specific lazy start headers "Eclipse-LazyStart" and "Eclipse-AutoStart"
+        val eclipseLazyStart = headers.get(EConstants.ECLIPSE_LAZYSTART)
+        val elements = ManifestElement.parseHeader(EConstants.ECLIPSE_LAZYSTART, eclipseLazyStart)
+        if (elements != null && elements.length > 0) {
+          // if the value is true then it is lazy activated
+          if ("true".equals(elements(0).getValue())) //$NON-NLS-1$
+            return true;
+          // otherwise it is only lazy activated if it defines an exceptions directive.
+          else if (elements(0).getDirective("exceptions") != null) //$NON-NLS-1$
+            return true;
+        }
+      }
+    } catch {
+      case e: BundleException =>
+      // ignore this
+    }
+    return false;
+  }
   /**
    * Register a framework shutdown handler. <p>
    * A handler implements the {@link Runnable} interface.  When the framework is shutdown

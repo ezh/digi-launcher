@@ -24,6 +24,7 @@ import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
 import java.io.PrintWriter
+
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.log.Logging
 import org.digimead.digi.lib.log.Logging.Logging2implementation
@@ -31,6 +32,10 @@ import org.digimead.digi.lib.log.Record
 import org.digimead.digi.lib.log.appender.Appender
 import org.digimead.digi.lib.DependencyInjection
 
+// Write your own appender or submit at issue report if you want to change this to something expendable
+/**
+ * Report appender
+ */
 object ReportAppender extends Appender {
   @volatile private var file: Option[File] = None
   @volatile private var output: Option[PrintWriter] = None
@@ -38,6 +43,8 @@ object ReportAppender extends Appender {
   @volatile private var counter1 = 0
   /** Counter that prevents clean() operation */
   @volatile private var counter2 = 0
+  /** Appender filter */
+  @volatile private var filter: Record.Message => Boolean = (record) => true
 
   protected var f = (records: Array[Record.Message]) => synchronized {
     // rotate
@@ -56,20 +63,28 @@ object ReportAppender extends Appender {
     output.foreach {
       output =>
         records.foreach { r =>
-          output.write(r.toString)
-          r.throwable.foreach { t =>
-            output.println()
-            try {
-              t.printStackTrace(output)
-            } catch {
-              case e: Throwable =>
-                output.append("\nstack trace \"" + t.getMessage + "\" unaviable")
+          if (filter(r)) {
+            output.write(r.toString)
+            r.throwable.foreach { t =>
+              output.println()
+              try {
+                t.printStackTrace(output)
+              } catch {
+                case e: Throwable =>
+                  output.append("\nstack trace \"" + t.getMessage + "\" unaviable")
+              }
             }
+            output.println()
           }
-          output.println()
         }
         output.flush
     }
+  }
+
+  /** Change report appender singleton filter */
+  def apply(filter: Record.Message => Boolean): ReportAppender.type = {
+    this.filter = filter
+    this
   }
   @log
   override def init() = synchronized {
@@ -138,7 +153,7 @@ object ReportAppender extends Appender {
    */
   private object DI extends DependencyInjection.PersistentInjectable {
     /** Log file size limit. */
-    lazy val fileLimit: Int = injectOptional[Int]("Report.LogFileSize") getOrElse 409600*3 // 1.5Mb or ~100kb compressed
+    lazy val fileLimit: Int = injectOptional[Int]("Report.LogFileSize") getOrElse 409600 * 3 // 1.5Mb or ~100kb compressed
     /** Check for size every N lines. */
     lazy val checkEveryNLines = injectOptional[Int]("Report.LogCheckNLines") getOrElse 1000
   }
