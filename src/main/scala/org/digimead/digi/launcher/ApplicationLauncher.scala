@@ -422,7 +422,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     immutable.HashMap(entries.flatten: _*)
   }
   /** Refresh bundle if there is at least one modified file. */
-  def processDevelopmentMonitor(monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]], framework: osgi.Framework): Boolean = {
+  def processDevelopmentMonitor(monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]], framework: osgi.Framework, forceReload: Boolean): Boolean = {
     val context = framework.getSystemBundleContext()
     val modified = monitor.keys.flatMap { id =>
       Option(framework.getBundle(id)) match {
@@ -434,12 +434,17 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
             if (newState.size != oldState.size)
               Some(id)
             else {
-              if (newState.forall { case (file, time) => oldState(file) == time }) {
-                log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is unmodified.")
-                None
-              } else {
-                log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is changed.")
+              if (forceReload) {
+                log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is forced for reload.")
                 Some(id)
+              } else {
+                if (newState.forall { case (file, time) => oldState(file) == time }) {
+                  log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is unmodified.")
+                  None
+                } else {
+                  log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is changed.")
+                  Some(id)
+                }
               }
             }
           } else {
@@ -470,14 +475,26 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
      */
     // map for directory bundles: bundle id -> map(file in directory, modification time)
     var monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]] = null
+    var forceReload = false
     while (ApplicationLauncher.development.get()) {
       if (monitor == null)
         monitor = initializeDevelopmentMonitor(framework)
+      forceReload = false
       if (ApplicationLauncher.digiApp.get) {
-        try { digiRun(context, wait) } catch { case e: Throwable => log.error("Digi application halted: " + e.getMessage, e); Thread.sleep(1000) }
+        try {
+          digiRun(context, wait)
+        } catch {
+          case e: ClassNotFoundException =>
+            log.warn("Digi application halted(recompilation?): " + e.getMessage, e)
+            Thread.sleep(5000)
+            forceReload = true
+          case e: Throwable =>
+            log.error("Digi application halted: " + e.getMessage, e)
+            Thread.sleep(1000)
+        }
       } else
         ApplicationLauncher.development.synchronized { ApplicationLauncher.development.wait() }
-      if (processDevelopmentMonitor(monitor, framework))
+      if (processDevelopmentMonitor(monitor, framework, forceReload))
         monitor = initializeDevelopmentMonitor(framework)
     }
   }

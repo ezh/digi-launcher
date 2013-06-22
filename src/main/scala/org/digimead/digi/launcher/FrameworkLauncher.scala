@@ -179,6 +179,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
     else
       (true, toLazyActivation, toStart)
   }
+  /** Write information about unresolved bundles, except fragments to log service. */
   def logUnresolvedBundles(framework: osgi.Framework) = {
     val bundles = framework.getSystemBundleContext().getBundles()
     val state = framework.frameworkAdaptor.getState()
@@ -212,6 +213,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
             }
             constraints.add(leafConstraint)
           }
+        case _ =>
       }
     }
     // found some bundles with missing leaf constraints; log them first
