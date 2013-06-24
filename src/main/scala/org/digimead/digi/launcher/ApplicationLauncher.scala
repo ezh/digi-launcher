@@ -94,8 +94,14 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
    * The start level when the fwl start. This level is passed to the StartLevel service.
    */
   val defaultInitialStartLevel = injectOptional[Int](EclipseStarter.PROP_INITIAL_STARTLEVEL) getOrElse 6
+  /** The DI keys validator Fn(keyClass, loaderClass) */
+  val dependencyValidator = injectOptional[(Manifest[_], Option[String], Class[_]) => Boolean]("Launcher.DI.Validator")
   /** The development mode and class path entries. */
   val dev = injectOptional[Boolean](EclipseStarter.PROP_DEV)
+  /** The development bundle symbolic name list. */
+  val devBundles = injectOptional[Seq[String]]("Launcher.Dev.Bundles") getOrElse (Seq())
+  /** Digi application entry point interface/service. */
+  val digiMainService = inject[String]("Launcher.Digi.Service")
   /** Extension bundles that added to 'osgi.bundles'. 'osgi.bundles' have more priority.  */
   val extensionBundles = injectOptional[Array[String]](EclipseStarter.PROP_EXTENSIONS) getOrElse Array()
   /** A boolean flag indicating whether or not to be framework restarted if there are installed/uninstalled bundles. */
@@ -128,8 +134,6 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   lazy val debugLogRedirector = new ApplicationLauncher.DebugLogRedirector()
   /** Platform debug log redirector thread */
   lazy val debugLogRedirectorThread = new Thread(debugLogRedirector, "Platform debug log redirector")
-  /** Digi application entry point interface. */
-  val digiMainService = "org.digimead.tabuddy.desktop.core.api.Main"
   /** Framework launcher instance loaded with current class loader */
   val frameworkLauncher: FrameworkLauncher = getClass.getClassLoader().
     loadClass(frameworkLauncherClass.getName).newInstance().asInstanceOf[FrameworkLauncher]
@@ -167,7 +171,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     val baseProperties = immutable.HashMap[String, String](
       "osgi.checkConfiguration" -> "true", // timestamps are check in the configuration cache to ensure that the cache is up to date
       "osgi.classloader.singleThreadLoads" -> "false", //
-      EclipseStarter.PROP_DEBUG -> locationDebugOptions.getAbsolutePath(), // search .options file at provided location
+      EclipseStarter.PROP_DEBUG -> locationDebugOptions.getAbsolutePath(), // search .options file at the provided location
       "osgi.install.area" -> data.getAbsoluteFile.toURI.toURL.toString,
       "osgi.noShutdown" -> "true", // the OSGi Framework will not be shut down after the application has ended
       // This tells framework to use our classloader as parent, so it can see classes that we see
@@ -178,7 +182,6 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       // Look for more at http://frankkieviet.blogspot.ru/2009/03/javalanglinkageerror-loader-constraint.html
       // So we would get java.lang.LinkageError at least on scala.* classes.
       "org.osgi.framework.bootdelegation" -> "*", // Should we fix it with new implementation of BundleLoader?
-      //"eclipse.ignoreApp" -> "true"
       "osgi.requiredJavaVersion" -> "1.6", // the minimum java version that is required to launch application
       "osgi.resolver.usesMode" -> "aggressive", // aggressively seeks a solution with no class space inconsistencies
       // The osgi.syspath is set by ApplicationLauncher/EclipseStarter to be the parent directory of the
@@ -262,7 +265,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       val (framework, shutdownListeners) = frameworkLauncher.launch(Seq(shutdownHandler))
       // If everything OK, we would have here:
       //   1. framework with STARTING system bundle,
-      //   2. console if needed
+      //   2. console if needed (optional, change code yourself with copy'n'paste)
       //   3. captured debug. Fucking framework designers :-/ This is ugly hack. Shame!
       //   4. preloaded/cached bundles in RESOLVED state.
       //     Run sequence is restarted if SupportLoader.refreshPackages detect installed/uninstalled bundles and there is isForcedRestart
@@ -272,7 +275,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         case ((true, lazyActivationBundles, toStartBundles)) =>
           // System bundle is STARTING, all other bundles are RESOLVED and framework is consistent
           // Initialize DI for our OSGi infrastructure.
-          applicationDIScript.foreach(frameworkLauncher.initializeDI(_, framework))
+          applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
           // Start bundles after DI initialization.
           frameworkLauncher.startBundles(defaultInitialStartLevel, lazyActivationBundles, toStartBundles, framework)
           false
@@ -293,7 +296,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
             frameworkLauncher.logUnresolvedBundles(framework)
             // System bundle is STARTING, all other bundles are RESOLVED or INSTALLED
             // Initialize DI for our OSGi infrastructure.
-            applicationDIScript.foreach(frameworkLauncher.initializeDI(_, framework))
+            applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
             // Start bundles after DI initialization
             frameworkLauncher.startBundles(defaultInitialStartLevel, lazyActivationBundles, toStartBundles, framework)
             false
@@ -477,25 +480,53 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     var monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]] = null
     var forceReload = false
     while (ApplicationLauncher.development.get()) {
-      if (monitor == null)
-        monitor = initializeDevelopmentMonitor(framework)
       forceReload = false
-      if (ApplicationLauncher.digiApp.get) {
-        try {
-          digiRun(context, wait)
-        } catch {
-          case e: ClassNotFoundException =>
-            log.warn("Digi application halted(recompilation?): " + e.getMessage, e)
-            Thread.sleep(5000)
-            forceReload = true
-          case e: Throwable =>
-            log.error("Digi application halted: " + e.getMessage, e)
-            Thread.sleep(1000)
+      if (monitor == null) {
+        // If it is the first time.
+        monitor = if (devBundles.nonEmpty)
+          // We are not interested in monitor - we have an explicit bundle list.
+          immutable.HashMap()
+        else
+          // Collect bundle modification time.
+          initializeDevelopmentMonitor(framework)
+      } else {
+        if (ApplicationLauncher.digiApp.get) {
+          try {
+            digiRun(context, wait)
+          } catch {
+            case e: ClassNotFoundException =>
+              log.warn("Digi application halted(recompilation?): " + e.getMessage, e)
+              Thread.sleep(5000)
+              forceReload = true
+            case e: Throwable =>
+              log.error("Digi application halted: " + e.getMessage, e)
+              Thread.sleep(1000)
+          }
+        } else
+          ApplicationLauncher.development.synchronized { ApplicationLauncher.development.wait() }
+      }
+      if (devBundles.isEmpty) {
+        // devBundles is empty
+        // We search for modified files in bundle directories
+        log.warn(s"Development mode. Refresh bundles only modified bundles.")
+        if (processDevelopmentMonitor(monitor, framework, forceReload))
+          monitor = initializeDevelopmentMonitor(framework)
+      } else {
+        // devBundles is not empty.
+        // Force to reload all development bundles.
+        val toReload = framework.getSystemBundleContext().getBundles().filter(b => devBundles.exists(_ == b.getSymbolicName()))
+        if (toReload.size != devBundles.size) {
+          val lost = devBundles.filterNot(b => toReload.exists(_.getSymbolicName() == b))
+          System.err.println("Not all development bundles found. Lost: " + lost.mkString(","))
+          log.error("Not all development bundles found. Lost: " + lost.mkString(","))
         }
-      } else
-        ApplicationLauncher.development.synchronized { ApplicationLauncher.development.wait() }
-      if (processDevelopmentMonitor(monitor, framework, forceReload))
-        monitor = initializeDevelopmentMonitor(framework)
+        val modified = toReload.map(_.getBundleId())
+        log.warn(s"Development mode. Refresh bundles with IDs (${modified.mkString(", ")})")
+        frameworkLauncher.refreshBundles(modified, maximumDuration, framework)
+        // Apply new DI
+        // Initialize DI for our OSGi infrastructure.
+        applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
+      }
     }
   }
   /**
@@ -570,7 +601,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
 object ApplicationLauncher extends Loggable {
   @volatile private var applicationThread: Option[Thread] = None
   @volatile private var applicationFramework: Option[osgi.Framework] = None
-  @volatile private var digiMainService = "org.digimead.tabuddy.desktop.core.api.Main"
+  @volatile private var digiMainService: Option[String] = None
   /** Flag indicating whether the application is already initialized. */
   private lazy val initialized = new AtomicBoolean(false)
   /** Flag indicating whether the application is already running. */
@@ -613,20 +644,22 @@ object ApplicationLauncher extends Loggable {
   @log
   def digiStop(context: BundleContext, force: Boolean = false): Boolean = synchronized {
     if (digiApp.compareAndSet(true, false) || force) {
+      if (digiMainService.isEmpty)
+        throw new IllegalStateException("Digi main service is unknown.")
       digiApp.set(false)
-      val serviceTracker = new ServiceTracker[AnyRef, AnyRef](context, digiMainService, null)
+      val serviceTracker = new ServiceTracker[AnyRef, AnyRef](context, digiMainService.get, null)
       serviceTracker.open()
       Option(serviceTracker.getService()) match {
         case Some(main: Runnable) => try {
           main.asInstanceOf[{ def stop() }].stop()
         } catch {
           case e: Throwable =>
-            log.error(s"Unable to process incorrect service '$digiMainService': " + e.getMessage(), e)
+            log.error(s"Unable to process incorrect service '${digiMainService.get}': " + e.getMessage(), e)
         }
         case Some(_) =>
-          log.error(s"Unable to process incorrect service '$digiMainService'")
+          log.error(s"Unable to process incorrect service '${digiMainService.get}'")
         case None =>
-          log.error(s"Unable to get service for '$digiMainService'")
+          log.error(s"Unable to get service for '${digiMainService.get}'")
       }
       serviceTracker.close()
       true

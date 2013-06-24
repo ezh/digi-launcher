@@ -160,7 +160,7 @@ object Launcher extends Loggable {
    * @param applicationDI Consolidated dependency injection information for OSGi bundles.
    */
   def main[T](wait: Boolean, launcherDI: => BindingModule,
-    applicationDIScript: Option[File] = None)(shutdownHook: => T) = synchronized {
+    bootstrapRegExp: Seq[String], applicationDIScript: Option[File] = None)(shutdownHook: => T) = synchronized {
     // Initialize DI, that may contains code with implicit OSGi initialization.
     // But this is not significant because we will have clean context from our framework loader
     // 1st DI - WINNER
@@ -170,43 +170,18 @@ object Launcher extends Loggable {
     Activator.start()
     val bootstrap = DI.implementation
     launcher = Some(bootstrap)
-    // Add bootstrap classes.
-
-    // Important. Basis.
-    //  Perpendicular logic (security, caching, logging, profiling, etc..)
-    //   are always system wide. This is nature. This is axiom.
-    // Parallel logic are always modular.
-    // OSGi is supplement of nature, not opposite.
-    // Please add you perpendicular logic here and remember that
-    //   the exception proves the rule.
-    //
-    //   Ezh
-
-    // We always propagate scala classes. The reason: the same as for java classes.
-    bootstrap.rootClassLoader.addBootDelegationExpression("""^scala\..*""")
-    // We always propagate API classes. The reason: API interfaces are solid and public.
-    bootstrap.rootClassLoader.addBootDelegationExpression("""^.*\.api\..*""")
-    // We always propagate AOP classes. The reason: they are perpendicular for the architecture.
-    bootstrap.rootClassLoader.addBootDelegationExpression("""^.*\.aop\..*""")
-    bootstrap.rootClassLoader.addBootDelegationExpression("""^org\.aspectj\..*""")
-    // We always propagate subcut(DI) classes. The reason: they are perpendicular
-    // for the application architecture like AOP functions.
-    bootstrap.rootClassLoader.addBootDelegationExpression("""^com\.escalatesoft\..*""")
-    // We always propagate slf4j(logging) classes. The reason: they are perpendicular.
-    bootstrap.rootClassLoader.addBootDelegationExpression("""^org\.slf4j\..*""")
+    // Add bootstrap classes to FWK class loader.
+    // For example:
+    //   """^scala\..*"""
+    //   """^com\.escalatesoft\..*"""
+    //   """^.*\.api\..*"""
+    bootstrapRegExp.foreach(bootstrap.rootClassLoader.addBootDelegationExpression)
     // We always propagate protocol handlers
     Option(System.getProperty("java.protocol.handler.pkgs")).foreach(_.split("""|""").foreach { pkg =>
       val pkgRegEx = "^" + pkg.trim.replaceAll("""\.""", """\.""")
       log.debug(s"Pass protocol handler '${pkg}' -> '${pkgRegEx}'")
       bootstrap.rootClassLoader.addBootDelegationExpression(pkgRegEx)
     })
-    // We always propagate OSGi interfaces itself. The reason: framework is solid.
-    bootstrap.rootClassLoader.addBootDelegationExpression("""^org\.osgi\..*""")
-    // We hide anything other(trunks and leaves of the tree) is OSGi cells. They may use
-    // their own dependencies even binary incompatible as expected.
-
-    // Should we propagate digimead classes? The reason: the body is solid.
-
     // Initialize application launcher within rootClassLoader context.
     bootstrap.initialize(applicationDIScript)
     // Run application launcher within rootClassLoader context.

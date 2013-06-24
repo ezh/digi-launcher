@@ -111,21 +111,29 @@ class FrameworkLauncher extends BundleListener with Loggable {
   def finish(shutdownListeners: Seq[BundleListener], console: Option[ConsoleManager], framework: osgi.Framework) {
     log.info("Finish processes of OSGi framework.")
     (shutdownListeners :+ this).foreach(l => try { framework.getSystemBundleContext().removeBundleListener(l) } catch { case e: Throwable => })
-    console.foreach(console => try { console.stopConsole() } catch { case e: Throwable => log.warn("Unable to stop OSGi console: " + e, e) })
+    console.foreach(console => try { console.stopConsole() } catch {
+      case e: IllegalStateException if e.getMessage() == "BundleContext is no longer valid" => // skip, framework is already stopped
+      case e: Throwable => log.warn("Unable to stop OSGi console: " + e, e)
+    })
     try { unregisterLogService(framework) } catch { case e: Throwable => log.warn("Unable to unregister bridge OSGi log service: " + e, e) }
+    try { dependencyInjectionRegistration.foreach(_.unregister()) } catch {
+      case e: IllegalStateException if e.getMessage() == "The service has been unregistered" => // skip, framework is already stopped
+      case e: Throwable => log.warn("Unable to unregister DI service: " + e, e)
+    }
     dependencyInjectionRegistration = None
     dependencyInjectionService = None
   }
   /** Initialize DI for OSGi framework. */
   @log
-  def initializeDI(diScript: File, framework: osgi.Framework) {
+  def initializeDI(diScript: File, validator: Option[(Manifest[_], Option[String], Class[_]) => Boolean], framework: osgi.Framework) {
     log.debug("Initialize DI for OSGi.")
     val diInjector = new osgi.DI
     diInjector.initialize(framework).foreach { diClassLoader =>
       diInjector.evaluate(diScript, diClassLoader).foreach { di =>
+        try { dependencyInjectionRegistration.foreach(_.unregister()) } catch { case e: Throwable => log.warn("Unable to unregister DI service: " + e, e) }
         // di is initialized within diClassLoader environment
         log.info("Inject DI settings from " + diScript)
-        dependencyInjectionService = Some(new FrameworkLauncher.DependencyInjectionService(di))
+        dependencyInjectionService = Some(new FrameworkLauncher.DependencyInjectionService(di, validator))
         dependencyInjectionRegistration = Some(framework.getSystemBundleContext().registerService(classOf[DependencyInjection], dependencyInjectionService.get, null))
       }
     }
@@ -278,7 +286,9 @@ class FrameworkLauncher extends BundleListener with Loggable {
             } else {
               val toStop = bundles.flatMap(b => if (b.getState() == Bundle.ACTIVE) Some(b) else None)
               log.debug(s"Stop bundles (${toStop.map(_.getSymbolicName()).mkString(",")}).")
-              toStop.foreach(_.stop)
+              toStop.foreach { bundle =>
+                try { bundle.stop } catch { case e: Throwable => log.error("Unable to stop bundle " + bundle + ": " + e.getMessage(), e) }
+              }
               waitForState(singleOperationTimeout, toStop.toSeq, (states) =>
                 states.forall(s => s != Bundle.ACTIVE && s != Bundle.STOPPING))
               if (!waitForConsitentState(singleOperationTimeout, framework))
@@ -294,7 +304,10 @@ class FrameworkLauncher extends BundleListener with Loggable {
                 exists && lazyPolicy
               }
               log.debug(s"Waiting for bundles (${toStart.map(_.getSymbolicName()).mkString(",")}).")
-              toStart.foreach(_.start) // there is nothing critical if we try to start bundle that is already starting
+              // there is nothing critical if we try to start bundle that is already starting
+              toStart.foreach { bundle =>
+                try { bundle.start } catch { case e: Throwable => log.error("Unable to start bundle " + bundle + ": " + e.getMessage(), e) }
+              }
               waitForState(singleOperationTimeout, toStart.toSeq, (states) => states.forall(_ == Bundle.ACTIVE))
               // try to start if something wrong
               val notStarted = toStart.filter(b => b.getState() != Bundle.ACTIVE && b.getState() != Bundle.INSTALLED)
@@ -566,9 +579,14 @@ class FrameworkLauncher extends BundleListener with Loggable {
 
 object FrameworkLauncher {
   /** DI service that pass actual value to Digi-Lib activator */
-  class DependencyInjectionService(di: BindingModule) extends DependencyInjection {
+  class DependencyInjectionService(di: BindingModule, validator: Option[(Manifest[_], Option[String], Class[_]) => Boolean]) extends DependencyInjection {
     /** Returns actual DI. From the user diScript, builder with special class loader. */
     def getDependencyInjection() = di
+    /**
+     * Returns DI key validator if any.
+     * @return - f(x,y,z) where x is key manifest, y is key name, z is DI loader.
+     */
+    def getDependencyValidator(): Option[(Manifest[_], Option[String], Class[_]) => Boolean] = validator
   }
   class OSGiLogBridge extends LogListener with ServiceTrackerCustomizer[LogReaderService, LogReaderService] with Loggable {
     @volatile protected var context: Option[BundleContext] = None
