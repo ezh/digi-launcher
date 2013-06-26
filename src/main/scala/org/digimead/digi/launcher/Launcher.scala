@@ -27,8 +27,8 @@ import java.net.URLClassLoader
 
 import org.digimead.digi.launcher.report.ExceptionHandler
 import org.digimead.digi.lib.Activator
-import org.digimead.digi.lib.DependencyInjection
 import org.digimead.digi.lib.aop.log
+import org.digimead.digi.lib.api.DependencyInjection
 import org.digimead.digi.lib.log.api.Loggable
 
 import com.escalatesoft.subcut.inject.BindingModule

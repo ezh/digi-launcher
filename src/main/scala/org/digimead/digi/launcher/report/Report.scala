@@ -28,10 +28,13 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.FileWriter
 import java.io.FilenameFilter
+import java.io.InputStream
 import java.io.OutputStream
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.lang.management.ManagementFactory
+import java.text.DateFormat
+import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Properties
 import java.util.UUID
@@ -41,43 +44,50 @@ import java.util.concurrent.locks.ReentrantLock
 import java.util.zip.GZIPOutputStream
 
 import scala.Array.canBuildFrom
+import scala.Option.option2Iterable
+import scala.annotation.tailrec
+import scala.collection.JavaConversions.enumerationAsScalaIterator
+import scala.collection.TraversableOnce.flattenTraversableOnce
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.future
 import scala.util.control.ControlThrowable
-import scala.collection.JavaConversions._
 
-import org.digimead.digi.lib.DependencyInjection
 import org.digimead.digi.lib.aop.log
+import org.digimead.digi.lib.api.DependencyInjection
 import org.digimead.digi.lib.log.Logging
 import org.digimead.digi.lib.log.Logging.Logging2implementation
-import org.digimead.digi.lib.log.Record
+import org.digimead.digi.lib.log.api.Event
+import org.digimead.digi.lib.log.api.Level
 import org.digimead.digi.lib.log.api.Loggable
-import org.digimead.digi.lib.util.Util
+import org.digimead.digi.lib.log.api.Message
+import org.osgi.framework.BundleContext
 
 import com.escalatesoft.subcut.inject.BindingModule
 import com.escalatesoft.subcut.inject.Injectable
-import com.google.common.io.ByteStreams
 
 import language.implicitConversions
-import language.reflectiveCalls
 
-class Report(implicit val bindingModule: BindingModule) extends Report.Interface with Loggable {
-  /** Thread with cleaner process */
+class Report(implicit val bindingModule: BindingModule) extends Report.Interface with Injectable with Loggable {
+  /** Thread with cleaner process. */
   @volatile private var cleanThread: Option[Thread] = None
-  /** Flag indicating whether stack trace generation enabled */
-  val allowGenerateStackTrace = inject[Boolean]("Report.TraceFileEnabled")
-  /** Number of saved log files */
+  /** Flag indicating whether stack trace generation enabled. */
+  val allowGenerateStackTrace = injectOptional[Boolean]("Report.TraceFileEnabled") getOrElse true
+  /** Number of saved log files. */
   val keepLogFiles: Int = injectOptional[Int]("Report.KeepLogFiles") getOrElse 4
-  /** Quantity of saved trace files */
+  /** Quantity of saved trace files. */
   val keepTrcFiles: Int = injectOptional[Int]("Report.KeepTrcFiles") getOrElse 8
-  /** Log file extension */
+  /** Log file extension. */
   val logFileExtension: String = injectOptional[String]("Report.LogFileExtension") getOrElse "log" // t(z)log, z - compressed
-  /** Log file extension prefix */
+  /** Log file extension prefix. */
   val logFileExtensionPrefix: String = injectOptional[String]("Report.LogFilePrefix") getOrElse "d"
-  /** Path to report files */
+  /** Path to report files. */
   val path: File = inject[File]("Report.LogPath")
-  /** Trace file extension */
+  /** Trace file extension. */
   val traceFileExtension: String = injectOptional[String]("Report.TraceFileExtension") getOrElse "trc"
+  /** Copy buffer size. */
+  val bufferSize: Int = injectOptional[Int]("Report.BufferSize") getOrElse 8196
+  /** Date representation format. */
+  val df = injectOptional[DateFormat]("Report.DateFormat") getOrElse new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSZ")
 
   /** Clean report files */
   @log
@@ -167,7 +177,7 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
           var zos: OutputStream = null
           try {
             zos = new GZIPOutputStream(new BufferedOutputStream(new FileOutputStream(compressed)))
-            ByteStreams.copy(is, zos)
+            copy(is, zos, true)
           } finally {
             if (zos != null)
               zos.close()
@@ -211,7 +221,7 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
       log.debug("Writing unhandled exception to: " + file)
       // Write the stacktrace to disk
       val bos = new BufferedWriter(new FileWriter(file))
-      bos.write(Util.dateString(when) + "\n")
+      bos.write(dateString(when) + "\n")
       bos.write(result.toString())
       bos.flush()
       // Close up everything
@@ -236,7 +246,7 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
         val version = Option(properties.getProperty("version")).getOrElse("0")
         val build = Option(properties.getProperty("build")) match {
           case Some(rawBuild) =>
-            (try { Util.dateString(new Date(rawBuild.toLong * 1000)) } catch { case e: Throwable => rawBuild }) + s" (${rawBuild})"
+            (try { dateString(new Date(rawBuild.toLong * 1000)) } catch { case e: Throwable => rawBuild }) + s" (${rawBuild})"
           case None => "0"
         }
         s"${name}: version: ${version}, build: ${build}"
@@ -264,8 +274,33 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
       components.flatten.toSeq.sorted.mkString("\n") + "\n"
   }
   /** Process the new report */
-  def process(record: Option[Record.Message]) = {
+  def process(record: Option[Message]) = {
     //ReportDialog.submit(record.map(r => "Exception " + r.message))
+  }
+  /** Start reporter log intercepter and application service. */
+  @log
+  def start(context: BundleContext) {
+    log.info("Start reporter.")
+    Event.subscribe(LogSubscriber)
+    try {
+      if (!path.exists())
+        if (!path.mkdirs()) {
+          log.fatal("unable to create report log path " + path)
+          return
+        }
+      clean()
+      compress()
+    } catch {
+      case e: Throwable => log.error(e.getMessage, e)
+    }
+    Report.active = true
+  }
+  /** Stop reporter log intercepter and application service. */
+  @log
+  def stop(context: BundleContext) {
+    log.info("Start reporter.")
+    Report.active = false
+    Event.removeSubscription(LogSubscriber)
   }
   /**
    * Submit error reports for investigation
@@ -350,12 +385,37 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
     }
     (keepSuffixes, result)
   }
-  object LogSubscriber extends Logging.Event.Sub {
+  /** Returns file prefix */
+  def filePrefix(): String = {
+    val uid = "U" + this.uid
+    val date = dateFile(new Date())
+    val pid = "P" + this.pid
+    Seq(uid, date, pid).map(_.replaceAll("""[/?*:\.;{}\\-]+""", "_")).mkString("-")
+  }
+  /** Returns file name based on the specific date. */
+  protected def dateFile(date: Date) = dateString(date).replaceAll("""[:\.]""", "_").replaceAll("""\+""", "x")
+  /** Returns string representation of the specific date. */
+  protected def dateString(date: Date) = df.format(date)
+  /** Copy streams. */
+  protected def copy(in: InputStream, out: OutputStream, close: Boolean) = try {
+    val buffer = new Array[Byte](bufferSize)
+    @tailrec
+    def read() {
+      val byteCount = in.read(buffer)
+      if (byteCount >= 0) {
+        out.write(buffer, 0, byteCount)
+        read()
+      }
+    }
+    read()
+  } finally { if (close) in.close }
+
+  object LogSubscriber extends Event.Sub {
     val lock = new ReentrantLock
-    def notify(pub: Logging.Event.Pub, event: Logging.Event) = if (!lock.isLocked()) {
+    def notify(pub: Event.Pub, event: Event) = if (!lock.isLocked()) {
       event match {
-        case event: Logging.Event.Outgoing =>
-          if (event.record.throwable.nonEmpty && event.record.level == Record.Level.Error) {
+        case event: Event.Outgoing =>
+          if (event.record.throwable.nonEmpty && event.record.level == Level.Error) {
             future {
               if (lock.tryLock()) try {
                 if (allowGenerateStackTrace)
@@ -376,12 +436,12 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
 }
 
 object Report extends Loggable {
-  implicit def report2implementation(r: Report.type): Interface = r.inner
+  implicit def report2implementation(r: Report.type): api.Report = r.inner
   @volatile private var active: Boolean = false
 
   def inner() = DI.implementation
 
-  trait Interface extends Injectable {
+  trait Interface extends api.Report {
     /** Number of saved log files */
     val keepLogFiles: Int
     /** Quantity of saved trace files */
@@ -408,14 +468,9 @@ object Report extends Loggable {
     /** Compress report logs */
     def compress(): Unit
     /** Process an error event */
-    def process(record: Option[Record.Message])
+    def process(record: Option[Message])
     /** Returns file prefix */
-    def filePrefix(): String = {
-      val uid = "U" + this.uid
-      val date = Util.dateFile(new Date())
-      val pid = "P" + this.pid
-      Seq(uid, date, pid).map(_.replaceAll("""[/?*:\.;{}\\-]+""", "_")).mkString("-")
-    }
+    def filePrefix(): String
     /** Returns general information about application */
     def info(): String
   }
@@ -424,6 +479,6 @@ object Report extends Loggable {
    */
   private object DI extends DependencyInjection.PersistentInjectable {
     /** Report implementation */
-    val implementation = inject[Interface]
+    val implementation = injectOptional[api.Report] getOrElse new Report
   }
 }

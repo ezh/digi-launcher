@@ -32,6 +32,7 @@ import java.io.StringWriter
 import java.net.URL
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.zip.ZipInputStream
 
 import scala.Array.canBuildFrom
 import scala.Option.option2Iterable
@@ -39,6 +40,7 @@ import scala.collection.JavaConversions._
 import scala.collection.immutable
 import scala.collection.mutable
 
+import org.digimead.digi.launcher.report.Report
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.log.api.Loggable
 import org.eclipse.core.runtime.adaptor.EclipseStarter
@@ -149,6 +151,10 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   @volatile protected var applicationDIScript: Option[File] = None
 
   checkAfterInitialization
+  // IMPORTANT.
+  //   Initialize all launcher singletons before main loop.
+  //   DI is modified after framework is started.
+  assert(Report.inner != null, "Report module is not available.") // Initialize
 
   /** Validate class state before initialization. */
   def checkBeforeInitialization {
@@ -200,6 +206,11 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     FrameworkProperties.initializeProperties()
     LocationManager.initializeLocations()
     FrameworkDebugOptions.getDefault()
+    /*
+     * IMPORTANT. We must call initializeEquinoxClasses AFTER configuration.
+     * Class forName invoke initialization.
+     */
+    initializeEquinoxClasses()
   } else {
     throw new IllegalStateException("Platform is already initialized.")
   }
@@ -236,6 +247,27 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     properties(EclipseStarter.PROP_INITIAL_STARTLEVEL) = defaultInitialStartLevel.toString
     properties(osgi.Framework.PROP_FORCED_RESTART) = forcedRestart.toString
     properties.toMap
+  }
+  /** Load stuff from Equinox with hacks of OSGi etalon realization. */
+  protected def initializeEquinoxClasses() {
+    log.info("Preload OSGi classes with Equinox hacks.")
+    val skipPreload = Seq("org.osgi.service.log.package-info")
+    Option(classOf[LocationManager].getProtectionDomain().getCodeSource()) match {
+      case Some(equinoxSrc) =>
+        val jar = equinoxSrc.getLocation();
+        val zip = new ZipInputStream(jar.openStream())
+        val iter = Iterator.continually { zip.getNextEntry() }
+        iter.takeWhile(_ != null).foreach {
+          case entry if entry.getName().endsWith(".class") =>
+            val className = entry.getName().substring(0, entry.getName().length() - 6).replaceAll("""/""", ".")
+            if (!skipPreload.contains(className))
+              Class.forName(className)
+          case entry =>
+        }
+      case None =>
+        log.fatal("Unable to find Equinox framework contents.")
+        return
+    }
   }
   /** Run OSGi framework and application. */
   @log
@@ -348,9 +380,35 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     }
     userShutdownHook.foreach(hook => new Thread(hook).start())
   }
+
+  /** Run Digi application. */
+  @log
+  protected def digiRun(context: BundleContext, timeout: Int) {
+    val serviceTracker = new ServiceTracker[AnyRef, AnyRef](context, digiMainService, null)
+    serviceTracker.open()
+    Option(serviceTracker.waitForService(timeout)) match {
+      case Some(main: Runnable) =>
+        // block here
+        log.debug("Start Digi application: " + main)
+        Report.start(context)
+        try {
+          main.run()
+        } catch {
+          case e: Throwable =>
+            log.error("Application terminated: " + e.getMessage, e)
+        }
+        Report.stop(context)
+        log.debug(s"Digi application $main is completed.")
+      case Some(_) =>
+        log.error(s"Unable to process incorrect service '$digiMainService'")
+      case None =>
+        log.error(s"Unable to get service for '$digiMainService'")
+    }
+    serviceTracker.close()
+  }
   /** Get bundle class. */
   @log
-  def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_] = {
+  protected def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_] = {
     val framework = ApplicationLauncher.applicationFramework getOrElse
       { throw new IllegalStateException("OSGi framework is not ready.") }
     val bundle = framework.getSystemBundleContext().getBundles.find(_.getSymbolicName() == bundleSymbolicName) getOrElse
@@ -358,7 +416,23 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     val classLoader = bundle.adapt(classOf[BundleWiring]).getClassLoader()
     classLoader.loadClass(singletonClassName)
   }
-
+  /** Collect all bundles that are directories, save lastModified for each file in bundle. */
+  protected def initializeDevelopmentMonitor(framework: osgi.Framework): immutable.HashMap[Long, immutable.HashMap[File, Long]] = {
+    log.debug("Development mode. Initialize monitor.")
+    val context = framework.getSystemBundleContext()
+    val entries = context.getBundles().map { bundle =>
+      try {
+        val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
+        if (location.isDirectory()) {
+          log.debug(s"Development mode. Add ${bundle.getSymbolicName()} to monitor.")
+          Some(bundle.getBundleId() -> immutable.HashMap(
+            recursiveListFiles(location).map(file => (file, file.lastModified())): _*))
+        } else
+          None
+      }
+    }
+    immutable.HashMap(entries.flatten: _*)
+  }
   /** Prepare OSGi framework. */
   @log
   protected def prepare() {
@@ -389,43 +463,8 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       log.debug(buffer.toString)
     }
   }
-  /** Run Digi application. */
-  @log
-  protected def digiRun(context: BundleContext, timeout: Int) {
-    val serviceTracker = new ServiceTracker[AnyRef, AnyRef](context, digiMainService, null)
-    serviceTracker.open()
-    Option(serviceTracker.waitForService(timeout)) match {
-      case Some(main: Runnable) =>
-        // block here
-        log.debug("Start Digi application: " + main)
-        main.run()
-        log.debug(s"Digi application $main is completed.")
-      case Some(_) =>
-        log.error(s"Unable to process incorrect service '$digiMainService'")
-      case None =>
-        log.error(s"Unable to get service for '$digiMainService'")
-    }
-    serviceTracker.close()
-  }
-  /** Collect all bundles that are directories, save lastModified for each file in bundle. */
-  def initializeDevelopmentMonitor(framework: osgi.Framework): immutable.HashMap[Long, immutable.HashMap[File, Long]] = {
-    log.debug("Development mode. Initialize monitor.")
-    val context = framework.getSystemBundleContext()
-    val entries = context.getBundles().map { bundle =>
-      try {
-        val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
-        if (location.isDirectory()) {
-          log.debug(s"Development mode. Add ${bundle.getSymbolicName()} to monitor.")
-          Some(bundle.getBundleId() -> immutable.HashMap(
-            recursiveListFiles(location).map(file => (file, file.lastModified())): _*))
-        } else
-          None
-      }
-    }
-    immutable.HashMap(entries.flatten: _*)
-  }
   /** Refresh bundle if there is at least one modified file. */
-  def processDevelopmentMonitor(monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]], framework: osgi.Framework, forceReload: Boolean): Boolean = {
+  protected def processDevelopmentMonitor(monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]], framework: osgi.Framework, forceReload: Boolean): Boolean = {
     val context = framework.getSystemBundleContext()
     val modified = monitor.keys.flatMap { id =>
       Option(framework.getBundle(id)) match {

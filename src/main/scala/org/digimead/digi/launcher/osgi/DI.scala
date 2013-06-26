@@ -21,6 +21,8 @@
 package org.digimead.digi.launcher.osgi
 
 import java.io.File
+import java.net.URL
+import java.net.URLClassLoader
 
 import scala.Array.canBuildFrom
 import scala.Array.fallbackCanBuildFrom
@@ -44,8 +46,8 @@ class DI extends Loggable {
     }
     try {
       // get delegationLoader from RootClassLoader via reflection
-      val evalClazz = getClass.getClassLoader().asInstanceOf[{ val delegationLoader: ClassLoader }].
-        delegationLoader.loadClass("com.twitter.util.Eval")
+      //val evalClazz = this.getClass().getClassLoader().asInstanceOf[{ val delegationLoader: ClassLoader }].delegationLoader.loadClass("com.twitter.util.Eval")
+      val evalClazz = classLoader.loadClass("com.twitter.util.Eval")
       val evalCtor = evalClazz.getConstructor(classOf[Option[File]])
       // None -> in memory compilation
       val eval = evalCtor.newInstance(None).asInstanceOf[{ def apply[T](files: File*): T }]
@@ -82,36 +84,59 @@ class DI extends Loggable {
       }))
     if (bundleContext.isEmpty) {
       log.error("Unable to initialize dependency injection: there are no bundle class loaders discovered.")
-      None
-    } else {
-      log.debug("Create DI classloader with subloaders in order: \n\t" + bundleContext.map(_._1).mkString("\n\t"))
-      Some(new DI.ClassLoader(getClass.getClassLoader(), bundleContext.map(_._2)))
+      return None
     }
+    log.debug("Create DI classloader with subloaders in order: \n\t" + bundleContext.map(_._1).mkString("\n\t"))
+    // The original class loader from the outer world
+    val delegationLoader = this.getClass().getClassLoader().
+      asInstanceOf[{ val delegationLoader: ClassLoader }].delegationLoader.asInstanceOf[URLClassLoader]
+    Some(new DI.ClassLoader(getClass.getClassLoader(), delegationLoader.getURLs(), bundleContext.map(_._2)))
   }
 }
 
-object DI {
+object DI extends Loggable {
   /**
    * Standard parent-first class loader with additional search over bundleClassLoaders
    */
-  class ClassLoader(parent: java.lang.ClassLoader,
-    val bundleClassLoaders: Seq[java.lang.ClassLoader]) extends java.lang.ClassLoader(parent) {
+  class ClassLoader(parent: java.lang.ClassLoader, urls: Array[URL],
+    val bundleClassLoaders: Seq[java.lang.ClassLoader]) extends URLClassLoader(urls, parent) {
     // It is never returns null, as the specification defines
     /** Loads the class with the specified binary name. */
     override protected def loadClass(name: String, resolve: Boolean): Class[_] = {
-      // Try to load from parent loader.
-      try {
-        return super.loadClass(name, resolve)
-      } catch {
-        case _: ClassNotFoundException =>
-      }
-
-      bundleClassLoaders.foreach { bundleClassLoader =>
+      // Try to load from this entry point.
+      if (name.startsWith("com.twitter.util.Eval"))
         try {
-          return bundleClassLoader.loadClass(name)
+          return super.loadClass(name, resolve)
         } catch {
           case _: ClassNotFoundException =>
         }
+      // Try to load from parent loader.
+      if (parent != null)
+        try {
+          val clazz = parent.loadClass(name)
+          log.debug("Loading via parent(FWK) loader " + clazz)
+          return clazz
+        } catch {
+          case _: ClassNotFoundException =>
+        }
+      // Try to load from collected bundle class loaders
+      bundleClassLoaders.foreach { bundleClassLoader =>
+        if (bundleClassLoader != null)
+          try {
+            val clazz = bundleClassLoader.loadClass(name)
+            log.debug(s"Loading via bundle loader ${bundleClassLoader}: " + clazz)
+            return clazz
+          } catch {
+            case _: ClassNotFoundException =>
+          }
+      }
+      // Try to load from this loader as a last chance.
+      try {
+        val clazz = super.loadClass(name, resolve)
+        log.debug("Loading direct from jar: " + clazz)
+        return clazz
+      } catch {
+        case _: ClassNotFoundException =>
       }
 
       throw new ClassNotFoundException(name)

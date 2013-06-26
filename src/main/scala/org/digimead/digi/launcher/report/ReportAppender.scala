@@ -25,12 +25,13 @@ import java.io.File
 import java.io.FileWriter
 import java.io.PrintWriter
 
+import org.digimead.digi.launcher.report.Report.report2implementation
 import org.digimead.digi.lib.aop.log
+import org.digimead.digi.lib.api.DependencyInjection
 import org.digimead.digi.lib.log.Logging
 import org.digimead.digi.lib.log.Logging.Logging2implementation
-import org.digimead.digi.lib.log.Record
-import org.digimead.digi.lib.log.appender.Appender
-import org.digimead.digi.lib.DependencyInjection
+import org.digimead.digi.lib.log.api.Message
+import org.digimead.digi.lib.log.api.Appender
 
 // Write your own appender or submit at issue report if you want to change this to something expendable
 /**
@@ -44,9 +45,9 @@ object ReportAppender extends Appender {
   /** Counter that prevents clean() operation */
   @volatile private var counter2 = 0
   /** Appender filter */
-  @volatile private var filter: Record.Message => Boolean = (record) => true
+  @volatile private var filter: Message => Boolean = (record) => true
 
-  protected var f = (records: Array[Record.Message]) => synchronized {
+  protected var f = (records: Array[Message]) => synchronized {
     // rotate
     for {
       output <- output
@@ -82,7 +83,7 @@ object ReportAppender extends Appender {
   }
 
   /** Change report appender singleton filter */
-  def apply(filter: Record.Message => Boolean): ReportAppender.type = {
+  def apply(filter: Message => Boolean): ReportAppender.type = {
     this.filter = filter
     this
   }

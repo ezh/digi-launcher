@@ -71,11 +71,17 @@ class RootClassLoader(
   override protected def loadClass(name: String, resolve: Boolean): Class[_] = {
     // Try to load from parent loader.
     try {
+      if (parent != null)
+        return parent.loadClass(name)
+    } catch {
+      case _: ClassNotFoundException =>
+    }
+    // Try to load from this loader.
+    try {
       return super.loadClass(name, resolve)
     } catch {
       case _: ClassNotFoundException =>
     }
-
     // Try to load from delegation loader.
     if (delegationLoader != null) {
       val iterator = bootDelegations.iterator

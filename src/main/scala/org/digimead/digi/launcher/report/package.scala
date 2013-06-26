@@ -25,7 +25,7 @@ import scala.collection.immutable
 import org.digimead.digi.launcher.report.Report
 import org.digimead.digi.launcher.report.ReportAppender
 import org.digimead.digi.lib.DependencyInjection
-import org.digimead.digi.lib.log.appender.Appender
+import org.digimead.digi.lib.log.api.Appender
 import org.digimead.digi.lib.log.appender.Console
 
 import com.escalatesoft.subcut.inject.NewBindingModule
