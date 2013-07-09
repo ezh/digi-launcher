@@ -28,31 +28,35 @@ import org.osgi.framework.BundleActivator
 trait Report {
   /** General information about application. */
   val info: String
-  /** Number of saved log files */
+  /** Number of saved log files. */
   val keepLogFiles: Int
-  /** Quantity of saved trace files */
+  /** Quantity of saved trace files. */
   val keepTrcFiles: Int
-  /** Log file extension */
+  /** Log file extension. */
   val logFileExtension: String
-  /** Log file extension prefix */
+  /** Log file extension prefix. */
   val logFileExtensionPrefix: String
-  /** Path to report files */
+  /** Path to report files. */
   val path: File
-  /** Process ID */
+  /** Process ID. */
   val pid: String
-  /** Flag indicating if the submit process is on going */
-  val submitInProgressLock: AtomicBoolean
-  /** Trace file extension */
+  /** Trace file extension. */
   val traceFileExtension: String
-  /** User ID */
+  /** User ID. */
   val uid: String
 
-  /** Clean report files */
+  /** Clean report files. */
   def clean(): Unit
-  /** Clean report files after review */
+  /** Clean report files after review. */
   def cleanAfterReview(dir: File = path): Unit
-  /** Compress report logs */
+  /** Compress report logs. */
   def compress(): Unit
-  /** Returns file prefix */
+  /** Returns file prefix. */
   def filePrefix(): String
+  /** Prepare for upload. */
+  def prepareForUpload(): Seq[File]
+  /** Register listener. */
+  def register(listener: Runnable)
+  /** Register listener. */
+  def unregister(listener: Runnable)
 }

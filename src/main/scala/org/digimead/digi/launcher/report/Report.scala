@@ -37,9 +37,7 @@ import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Properties
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantLock
 import java.util.zip.GZIPOutputStream
 
@@ -50,28 +48,25 @@ import scala.collection.JavaConversions.enumerationAsScalaIterator
 import scala.collection.TraversableOnce.flattenTraversableOnce
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.future
-import scala.util.control.ControlThrowable
 
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.api.DependencyInjection
-import org.digimead.digi.lib.log.Logging
-import org.digimead.digi.lib.log.Logging.Logging2implementation
 import org.digimead.digi.lib.log.api.Event
 import org.digimead.digi.lib.log.api.Level
 import org.digimead.digi.lib.log.api.Loggable
-import org.digimead.digi.lib.log.api.Message
-import org.osgi.framework.BundleContext
 
 import com.escalatesoft.subcut.inject.BindingModule
 import com.escalatesoft.subcut.inject.Injectable
 
 import language.implicitConversions
 
-class Report(implicit val bindingModule: BindingModule) extends Report.Interface with Injectable with Loggable {
-  /** Thread with cleaner process. */
-  @volatile private var cleanThread: Option[Thread] = None
+class Report(implicit val bindingModule: BindingModule) extends api.Report with Injectable with Loggable {
   /** Flag indicating whether stack trace generation enabled. */
   val allowGenerateStackTrace = injectOptional[Boolean]("Report.TraceFileEnabled") getOrElse true
+  /** Copy buffer size. */
+  val bufferSize: Int = injectOptional[Int]("Report.BufferSize") getOrElse 8196
+  /** Date representation format. */
+  val df = injectOptional[DateFormat]("Report.DateFormat") getOrElse new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSZ")
   /** General information about application. */
   val info = getInfo()
   /** Number of saved log files. */
@@ -84,12 +79,18 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
   val logFileExtensionPrefix: String = injectOptional[String]("Report.LogFilePrefix") getOrElse "d"
   /** Path to report files. */
   val path: File = inject[File]("Report.LogPath")
+  /** Process ID */
+  val pid = ManagementFactory.getRuntimeMXBean().getName()
+  /** Flag indicating if the submit process is on going */
+  val submitInProgressLock = new AtomicBoolean(false)
   /** Trace file extension. */
   val traceFileExtension: String = injectOptional[String]("Report.TraceFileExtension") getOrElse "trc"
-  /** Copy buffer size. */
-  val bufferSize: Int = injectOptional[Int]("Report.BufferSize") getOrElse 8196
-  /** Date representation format. */
-  val df = injectOptional[DateFormat]("Report.DateFormat") getOrElse new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSZ")
+  /** User ID */
+  val uid = System.getProperty("user.name")
+  /** Thread with cleaner process. */
+  @volatile protected var cleanThread: Option[Thread] = None
+  /** Exception listeners. */
+  @volatile protected var listeners = Seq[Runnable]()
 
   /** Clean report files */
   @log
@@ -237,9 +238,15 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
         e.printStackTrace()
     }
   }
-  /** Process the new report */
-  def process(record: Option[Message]) = {
-    //ReportDialog.submit(record.map(r => "Exception " + r.message))
+  /** Prepare for upload. */
+  def prepareForUpload(): Seq[File] = Seq()
+  /** Register listener. */
+  def register(listener: Runnable) = synchronized {
+    if (!listeners.contains(listener)) {
+      log.debug("Register listener " + listener)
+      listeners = listeners :+ listener
+    } else
+      throw new IllegalArgumentException("Listener ${listener} is already registered.")
   }
   /** Start reporter log intercepter and application service. */
   @log
@@ -266,32 +273,12 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
     Report.active = false
     Event.removeSubscription(LogSubscriber)
   }
-  /**
-   * Submit error reports for investigation
-   */
+  /** Register listener. */
   @log
-  def submit(force: Boolean, uploadCallback: Option[(Int, Int) => Any] = None): Boolean = synchronized {
-    log.debug("looking for error reports in: " + path)
-    val reports: Array[File] = Option(path.listFiles()).getOrElse(Array[File]())
-    if (reports.isEmpty)
-      return true
-    Logging.bufferedAppender.foreach(_.init)
-    Thread.sleep(500) // waiting for no reason ;-)
-    try {
-      if (force || reports.exists(_.getName.endsWith(traceFileExtension))) {
-        val fileN = new AtomicInteger
-        val sessionId = UUID.randomUUID.toString + "-"
-        Logging.flush(500)
-        //GoogleCloud.upload(reports, sessionId, { uploadCallback.foreach(_(fileN.incrementAndGet, reports.size)) })
-        true
-      } else {
-        true
-      }
-    } catch {
-      case ce: ControlThrowable => throw ce // propagate
-      case e: Throwable =>
-        log.error(e.getMessage, e)
-        false
+  def unregister(listener: Runnable) = synchronized {
+    if (listeners.contains(listener)) {
+      log.debug("Unregister listener " + listener)
+      listeners = listeners.filterNot(_ == listener)
     }
   }
 
@@ -421,7 +408,7 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
               if (lock.tryLock()) try {
                 if (allowGenerateStackTrace)
                   generateStackTrace(event.record.throwable.get, event.record.date)
-                Report.this.process(Option(event.record))
+                listeners.foreach(_.run())
               } finally {
                 lock.unlock()
               }
@@ -442,39 +429,6 @@ object Report extends Loggable {
 
   def inner() = DI.implementation
 
-  trait Interface extends api.Report {
-    /** General information about application. */
-    val info: String
-    /** Number of saved log files */
-    val keepLogFiles: Int
-    /** Quantity of saved trace files */
-    val keepTrcFiles: Int
-    /** Log file extension */
-    val logFileExtension: String
-    /** Log file extension prefix */
-    val logFileExtensionPrefix: String
-    /** Path to report files */
-    val path: File
-    /** Process ID */
-    val pid = ManagementFactory.getRuntimeMXBean().getName()
-    /** Flag indicating if the submit process is on going */
-    val submitInProgressLock = new AtomicBoolean(false)
-    /** Trace file extension */
-    val traceFileExtension: String
-    /** User ID */
-    val uid = System.getProperty("user.name")
-
-    /** Clean report files */
-    def clean(): Unit
-    /** Clean report files after review */
-    def cleanAfterReview(dir: File = path): Unit
-    /** Compress report logs */
-    def compress(): Unit
-    /** Process an error event */
-    def process(record: Option[Message])
-    /** Returns file prefix */
-    def filePrefix(): String
-  }
   /**
    * Dependency injection routines
    */

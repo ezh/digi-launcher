@@ -32,7 +32,7 @@ import com.escalatesoft.subcut.inject.NewBindingModule
 
 package object report {
   lazy val default = new NewBindingModule(module => {
-    module.bind[Report.Interface] toModuleSingle { implicit module => new Report }
+    module.bind[org.digimead.digi.launcher.report.api.Report] toModuleSingle { implicit module => new Report }
     module.bind[Boolean] identifiedBy "Report.TraceFileEnabled" toSingle { true }
     module.bind[Int] identifiedBy "Report.KeepLogFiles" toSingle { 4 }
     module.bind[Int] identifiedBy "Report.KeepTrcFiles" toSingle { 8 }
