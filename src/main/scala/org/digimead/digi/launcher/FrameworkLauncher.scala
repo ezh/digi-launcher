@@ -140,9 +140,9 @@ class FrameworkLauncher extends BundleListener with Loggable {
   }
   /** Launch OSGi framework. */
   @log
-  def launch(shutdownHandlers: Seq[Runnable]): (osgi.Framework, Seq[BundleListener]) = {
+  def launch(configLocation: File, shutdownHandlers: Seq[Runnable]): (osgi.Framework, Seq[BundleListener]) = {
     log.info("Launch OSGi framework.")
-    Properties.initialize()
+    Properties.initialize(configLocation)
     // after this: system bundle RESOLVED, all bundles INSTALLED
     val framework = create()
     val shutdownListeners = framework.registerShutdownHandlers(shutdownHandlers)
@@ -492,10 +492,10 @@ class FrameworkLauncher extends BundleListener with Loggable {
     }
   }
   object Properties {
-    def initialize() {
+    def initialize(configLocation: File) {
       FrameworkProperties.initializeProperties()
       LocationManager.initializeLocations()
-      loadConfigurationInfo()
+      merge(FrameworkProperties.getProperties(), load(configLocation.toURI.toURL))
       finalizeInitialization()
       if (Profile.PROFILE)
         Profile.initProps() // catch any Profile properties set in eclipse.properties...
@@ -541,18 +541,6 @@ class FrameworkLauncher extends BundleListener with Loggable {
         // TODO but it might be nice to log something with gentle wording (i.e., it is not an error)
       }
       substituteVars(result)
-    }
-    protected def loadConfigurationInfo() {
-      Option(LocationManager.getConfigurationLocation()) foreach { configArea =>
-        var location: URL = null
-        try {
-          location = new URL(configArea.getURL().toExternalForm() + LocationManager.CONFIG_FILE)
-        } catch {
-          case e: MalformedURLException =>
-          // its ok.  This should never happen
-        }
-        merge(FrameworkProperties.getProperties(), load(location))
-      }
     }
     protected def merge(destination: Properties, source: Properties) =
       for {

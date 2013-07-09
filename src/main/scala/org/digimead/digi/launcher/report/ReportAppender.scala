@@ -133,6 +133,7 @@ object ReportAppender extends Appender {
       // the PrintWriter is swallow the exceptions. It is fine.
       val writer = new PrintWriter(new BufferedWriter(new FileWriter(f, true)))
       writer.write("=== TA-Buddy desktop (if you have a question or suggestion, email ezh@ezh.msk.ru) ===\n")
+      writer.write("report path: " + Report.path + "\n")
       writer.write(Report.info)
       writer.write("=====================================================================================\n\n")
       // -rw-r--r--

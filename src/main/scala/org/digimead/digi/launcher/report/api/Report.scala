@@ -25,7 +25,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 import org.osgi.framework.BundleActivator
 
-trait Report extends BundleActivator {
+trait Report {
+  /** General information about application. */
+  val info: String
   /** Number of saved log files */
   val keepLogFiles: Int
   /** Quantity of saved trace files */
@@ -53,6 +55,4 @@ trait Report extends BundleActivator {
   def compress(): Unit
   /** Returns file prefix */
   def filePrefix(): String
-  /** Returns general information about application */
-  def info(): String
 }

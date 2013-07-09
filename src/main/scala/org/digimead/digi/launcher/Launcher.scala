@@ -26,6 +26,7 @@ import java.net.URL
 import java.net.URLClassLoader
 
 import org.digimead.digi.launcher.report.ExceptionHandler
+import org.digimead.digi.launcher.report.Report
 import org.digimead.digi.lib.Activator
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.api.DependencyInjection
@@ -83,7 +84,7 @@ class Launcher(implicit val bindingModule: BindingModule)
     constructor.newInstance(bindingModule)
   }.asInstanceOf[{
     def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_]
-    def initialize(applicationDI: Option[File])
+    def initialize(applicationDI: Option[File], report: org.digimead.digi.launcher.report.api.Report)
     def run(waitForTermination: Boolean, shutdownHandler: Option[Runnable])
   }]
   assert(bundles.isDirectory() && bundles.canRead() && bundles.isAbsolute(), s"Bundles directory '${bundles}' is inaccessable or relative.")
@@ -93,7 +94,7 @@ class Launcher(implicit val bindingModule: BindingModule)
   @log
   def initialize(applicationDIScript: Option[File]) = {
     uncaughtExceptionHandler.register() // skip, if already registered
-    applicationLauncher.initialize(applicationDIScript)
+    applicationLauncher.initialize(applicationDIScript, Report)
   }
   /** Run OSGi framework and application. */
   @log

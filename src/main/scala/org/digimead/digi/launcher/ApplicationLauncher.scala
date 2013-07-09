@@ -30,6 +30,7 @@ import java.io.PrintStream
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.net.URL
+import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipInputStream
@@ -40,7 +41,7 @@ import scala.collection.JavaConversions._
 import scala.collection.immutable
 import scala.collection.mutable
 
-import org.digimead.digi.launcher.report.Report
+import org.digimead.digi.launcher.report.api.Report
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.log.api.Loggable
 import org.eclipse.core.runtime.adaptor.EclipseStarter
@@ -53,6 +54,8 @@ import org.eclipse.osgi.framework.internal.core.FrameworkProperties
 import org.osgi.framework.Bundle
 import org.osgi.framework.BundleContext
 import org.osgi.framework.BundleException
+import org.osgi.framework.FrameworkUtil
+import org.osgi.framework.ServiceRegistration
 import org.osgi.framework.wiring.BundleWiring
 import org.osgi.util.tracker.ServiceTracker
 
@@ -98,10 +101,13 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   val defaultInitialStartLevel = injectOptional[Int](EclipseStarter.PROP_INITIAL_STARTLEVEL) getOrElse 6
   /** The DI keys validator Fn(keyClass, loaderClass) */
   val dependencyValidator = injectOptional[(Manifest[_], Option[String], Class[_]) => Boolean]("Launcher.DI.Validator")
-  /** The development mode and class path entries. */
-  val dev = injectOptional[Boolean](EclipseStarter.PROP_DEV)
-  /** The development bundle symbolic name list. */
-  val devBundles = injectOptional[Seq[String]]("Launcher.Dev.Bundles") getOrElse (Seq())
+  /**
+   * The development mode.
+   * Some(Seq(a,b,c)) - reload only a,b and c bundles
+   * Some(Seq()) - reload all directories and application bundle itself
+   * None - reload application bundle if restart requested
+   */
+  val dev = injectOptional[Seq[String]](EclipseStarter.PROP_DEV)
   /** Digi application entry point interface/service. */
   val digiMainService = inject[String]("Launcher.Digi.Service")
   /** Extension bundles that added to 'osgi.bundles'. 'osgi.bundles' have more priority.  */
@@ -111,7 +117,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   /** OSGi framework launcher class. */
   val frameworkLauncherClass = injectOptional[Class[FrameworkLauncher]] getOrElse classOf[FrameworkLauncher]
   /** The data location for this instance. */
-  val instanceArea = injectOptional[URL](LocationManager.PROP_INSTANCE_AREA)
+  val instanceArea = injectOptional[URL](LocationManager.PROP_INSTANCE_AREA) getOrElse locationConfigurationArea.toURI().toURL()
   /** The launcher location. */
   val launcher = injectOptional[String](osgi.Framework.PROP_LAUNCHER)
   /** Maximum operation (start/stop/restart) duration */
@@ -140,21 +146,24 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   val frameworkLauncher: FrameworkLauncher = getClass.getClassLoader().
     loadClass(frameworkLauncherClass.getName).newInstance().asInstanceOf[FrameworkLauncher]
   /** Location of osgi.configuration.area, ../configuration */
-  val locationConfigurationArea = new File(data, "configuration")
-  /** Location of config.ini in osgi.configuration.area */
-  val locationConfigurationAreaConfig = new File(locationConfigurationArea, LocationManager.CONFIG_FILE)
+  lazy val locationConfigurationArea = new File(data, "configuration")
+  /** Location of config.ini (that was located at osgi.configuration.area by design :-) ) */
+  lazy val frameworkConfiguration = new File(bundles, LocationManager.CONFIG_FILE)
   /** Location of .options file with debug options */
-  val locationDebugOptions = new File(locationConfigurationArea, ".options")
+  lazy val locationDebugOptions = new File(locationConfigurationArea, ".options")
   /** User shutdown hook. */
   @volatile protected var userShutdownHook: Option[Runnable] = None
   /** Location of script with DI settings. */
   @volatile protected var applicationDIScript: Option[File] = None
+  /** Report instance from non OSGi world. */
+  @volatile protected var report: Option[Report] = None
+  /** Report service registration. */
+  @volatile protected var reportRegistration: Option[ServiceRegistration[Report]] = None
 
   checkAfterInitialization
   // IMPORTANT.
   //   Initialize all launcher singletons before main loop.
   //   DI is modified after framework is started.
-  assert(Report.inner != null, "Report module is not available.") // Initialize
 
   /** Validate class state before initialization. */
   def checkBeforeInitialization {
@@ -168,52 +177,54 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   }
   /** Prepare OSGi framework settings. */
   @log
-  def initialize(applicationDIScript: Option[File]) = if (ApplicationLauncher.initialized.compareAndSet(false, true)) {
-    if (ApplicationLauncher.running.get)
-      throw new IllegalStateException(EclipseAdaptorMsg.ECLIPSE_STARTUP_ALREADY_RUNNING)
-    log.info("Initialize application launcher.")
-    this.applicationDIScript = applicationDIScript
-    val diProperties = initializeDIProperties
-    val baseProperties = immutable.HashMap[String, String](
-      "osgi.checkConfiguration" -> "true", // timestamps are check in the configuration cache to ensure that the cache is up to date
-      "osgi.classloader.singleThreadLoads" -> "false", //
-      EclipseStarter.PROP_DEBUG -> locationDebugOptions.getAbsolutePath(), // search .options file at the provided location
-      "osgi.install.area" -> data.getAbsoluteFile.toURI.toURL.toString,
-      "osgi.noShutdown" -> "true", // the OSGi Framework will not be shut down after the application has ended
-      // This tells framework to use our classloader as parent, so it can see classes that we see
-      // org.eclipse.osgi.baseadaptor.BaseAdaptor
-      "osgi.parentClassloader" -> "fwk",
-      // IMPORTANT. Allow to pass first loading request to parent (FWK) class loader.
-      // Without this the logic of BundleLoader would be "self-first", not "parent-first".
-      // Look for more at http://frankkieviet.blogspot.ru/2009/03/javalanglinkageerror-loader-constraint.html
-      // So we would get java.lang.LinkageError at least on scala.* classes.
-      "org.osgi.framework.bootdelegation" -> "*", // Should we fix it with new implementation of BundleLoader?
-      "osgi.requiredJavaVersion" -> "1.6", // the minimum java version that is required to launch application
-      "osgi.resolver.usesMode" -> "aggressive", // aggressively seeks a solution with no class space inconsistencies
-      // The osgi.syspath is set by ApplicationLauncher/EclipseStarter to be the parent directory of the
-      // framework (osgi.framework). It is a path string, not a URL. It is currently used
-      // by the Eclipse adaptor, to find initial bundles to install (when osgi.bundles
-      // contains symbolic names provided instead of URLs).
-      "osgi.syspath" -> bundles.getAbsolutePath) ++ diProperties
-    if (debug) {
-      frameworkLauncher.Properties.setInitial(baseProperties ++
-        immutable.HashMap(
-          EclipseStarter.PROP_CONSOLE -> debugPort.toString,
-          "osgi.console.enable.builtin" -> true.toString))
-    } else {
-      frameworkLauncher.Properties.setInitial(baseProperties)
-    }
-    FrameworkProperties.initializeProperties()
-    LocationManager.initializeLocations()
-    FrameworkDebugOptions.getDefault()
-    /*
+  def initialize(applicationDIScript: Option[File], report: Report) =
+    if (ApplicationLauncher.initialized.compareAndSet(false, true)) {
+      if (ApplicationLauncher.running.get)
+        throw new IllegalStateException(EclipseAdaptorMsg.ECLIPSE_STARTUP_ALREADY_RUNNING)
+      log.info("Initialize application launcher.")
+      this.report = Option(report)
+      this.applicationDIScript = applicationDIScript
+      val diProperties = initializeDIProperties
+      val baseProperties = immutable.HashMap[String, String](
+        "osgi.checkConfiguration" -> "true", // timestamps are check in the configuration cache to ensure that the cache is up to date
+        "osgi.classloader.singleThreadLoads" -> "false", //
+        EclipseStarter.PROP_DEBUG -> locationDebugOptions.getAbsolutePath(), // search .options file at the provided location
+        "osgi.install.area" -> data.getAbsoluteFile.toURI.toURL.toString,
+        "osgi.noShutdown" -> "true", // the OSGi Framework will not be shut down after the application has ended
+        // This tells framework to use our classloader as parent, so it can see classes that we see
+        // org.eclipse.osgi.baseadaptor.BaseAdaptor
+        "osgi.parentClassloader" -> "fwk",
+        // IMPORTANT. Allow to pass first loading request to parent (FWK) class loader.
+        // Without this the logic of BundleLoader would be "self-first", not "parent-first".
+        // Look for more at http://frankkieviet.blogspot.ru/2009/03/javalanglinkageerror-loader-constraint.html
+        // So we would get java.lang.LinkageError at least on scala.* classes.
+        "org.osgi.framework.bootdelegation" -> "*", // Should we fix it with new implementation of BundleLoader?
+        "osgi.requiredJavaVersion" -> "1.6", // the minimum java version that is required to launch application
+        "osgi.resolver.usesMode" -> "aggressive", // aggressively seeks a solution with no class space inconsistencies
+        // The osgi.syspath is set by ApplicationLauncher/EclipseStarter to be the parent directory of the
+        // framework (osgi.framework). It is a path string, not a URL. It is currently used
+        // by the Eclipse adaptor, to find initial bundles to install (when osgi.bundles
+        // contains symbolic names provided instead of URLs).
+        "osgi.syspath" -> bundles.getAbsolutePath) ++ diProperties
+      if (debug) {
+        frameworkLauncher.Properties.setInitial(baseProperties ++
+          immutable.HashMap(
+            EclipseStarter.PROP_CONSOLE -> debugPort.toString,
+            "osgi.console.enable.builtin" -> true.toString))
+      } else {
+        frameworkLauncher.Properties.setInitial(baseProperties)
+      }
+      FrameworkProperties.initializeProperties()
+      LocationManager.initializeLocations()
+      FrameworkDebugOptions.getDefault()
+      /*
      * IMPORTANT. We must call initializeEquinoxClasses AFTER configuration.
      * Class forName invoke initialization.
      */
-    initializeEquinoxClasses()
-  } else {
-    throw new IllegalStateException("Platform is already initialized.")
-  }
+      initializeEquinoxClasses()
+    } else {
+      throw new IllegalStateException("Platform is already initialized.")
+    }
   /** ApplicationLauncher main loop method. */
   @log
   def run(waitForTermination: Boolean, shutdownHandler: Option[Runnable]) {
@@ -226,13 +237,226 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       thread.join()
   }
 
+  /**
+   * Runs the Digi application for which the platform was started. The platform
+   * must be running.
+   */
+  protected def appDigi(framework: osgi.Framework) {
+    ApplicationLauncher.digiApp.set(true)
+    val wait = 60000
+    if (!ApplicationLauncher.running.get)
+      throw new IllegalStateException(EclipseAdaptorMsg.ECLIPSE_STARTUP_NOT_RUNNING)
+    val context = framework.getSystemBundleContext()
+    // Application entry point exit code.
+    var code = ApplicationLauncher.ReturnCode.RESTART
+    // Force bundle reload
+    var forceReload = false
+    // Sequence of expired or modified bundles that will be reloaded.
+    var modifiedBundles = Seq[Long]()
+    // map for directory bundles: bundle id -> map(file in directory, modification time).
+    var monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]] = null
+    while (ApplicationLauncher.development.get() || code == ApplicationLauncher.ReturnCode.RESTART) {
+      forceReload = false // at the beginning we don't want to reload bundles
+      modifiedBundles = Seq() // at the beginning we haven't any expired or modified bundles
+      if (monitor == null) {
+        // If it is the first time. Collect bundle modification time.
+        monitor = initializeDevelopmentMonitor(framework)
+      } else {
+        if (ApplicationLauncher.digiApp.get) {
+          try {
+            System.out.println("Application is starting up.")
+            log.info("Application is starting up.")
+            appDigiCall(context, wait) match {
+              case (exitCode, -1) =>
+                log.warn("Application bundle ID is not specified.")
+                code = exitCode
+              case (exitCode, bundleId) =>
+                code = exitCode
+                modifiedBundles = Seq(bundleId)
+            }
+            log.info("Application is stopped.")
+            System.out.println("Application is stopped.")
+          } catch {
+            case e: ClassNotFoundException =>
+              log.warn("Digi application halted(recompilation?): " + e.getMessage, e)
+              Thread.sleep(5000)
+              forceReload = true
+            case e: Throwable =>
+              log.error("Digi application halted: " + e.getMessage, e)
+              Thread.sleep(1000)
+          }
+        } else
+          ApplicationLauncher.development.synchronized { ApplicationLauncher.development.wait() }
+      }
+      if (ApplicationLauncher.development.get()) {
+        // We are in development mode
+        dev.getOrElse(Seq()) match {
+          case Nil =>
+            // We search for modified files in bundle directories
+            log.warn(s"Development mode. Refresh bundles only modified bundles.")
+            if (processDevelopmentMonitor(modifiedBundles, monitor, framework, forceReload)) {
+              monitor = initializeDevelopmentMonitor(framework)
+              // Apply new DI, initialize DI for our OSGi infrastructure.
+              applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
+            }
+          case dev =>
+            // We have explicit list of bundles
+            val toReload = framework.getSystemBundleContext().getBundles().filter(b => dev.exists(_ == b.getSymbolicName()))
+            if (toReload.size != dev.size) {
+              val lost = dev.filterNot(b => toReload.exists(_.getSymbolicName() == b))
+              System.err.println("Not all development bundles found. Lost: " + lost.mkString(","))
+              log.error("Not all development bundles found. Lost: " + lost.mkString(","))
+            }
+            // Force to reload all development bundles.
+            val modified = toReload.map(_.getBundleId())
+            log.warn(s"Development mode. Refresh bundles with IDs (${modified.mkString(", ")})")
+            frameworkLauncher.refreshBundles(modified, maximumDuration, framework)
+            // Apply new DI, initialize DI for our OSGi infrastructure.
+            applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
+        }
+      } else if (code == ApplicationLauncher.ReturnCode.RESTART && modifiedBundles.nonEmpty) {
+        // We are in production mode but application requests restart
+        // modifiedBundles MUST contain at least application bundle ID (look at appDigiCall)
+        log.warn(s"Production mode. Refresh application bundle with IDs ${modifiedBundles.mkString(", ")}")
+        frameworkLauncher.refreshBundles(modifiedBundles, maximumDuration, framework)
+        // Apply new DI, initialize DI for our OSGi infrastructure.
+        applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
+      }
+    }
+  }
+  /**
+   * Run Digi application.
+   * @return IApplication.EXIT_OK(0), IApplication.EXIT_RESTART(23) or -1 and application bundle id
+   */
+  @log
+  protected def appDigiCall(context: BundleContext, timeout: Int): (Int, Long) = {
+    var resultAppBundleId = -1L
+    var resultCode = ApplicationLauncher.ReturnCode.ERROR
+    val serviceTracker = new ServiceTracker[AnyRef, AnyRef](context, digiMainService, null)
+    serviceTracker.open()
+    Option(serviceTracker.waitForService(timeout)) match {
+      case Some(main: Callable[_]) =>
+        // block here
+        log.debug("Start Digi application: " + main)
+        reportStart(context)
+        try {
+          resultAppBundleId = FrameworkUtil.getBundle(main.getClass()).getBundleId()
+          resultCode = main.call().asInstanceOf[Int]
+        } catch {
+          case e: Throwable =>
+            log.error("Application terminated: " + e.getMessage, e)
+        }
+        reportStop(context)
+        log.debug(s"Digi application $main is completed.")
+      case Some(_) =>
+        log.error(s"Unable to process incorrect service '$digiMainService'")
+      case None =>
+        log.error(s"Unable to get service for '$digiMainService'")
+    }
+    serviceTracker.close()
+    (resultCode, resultAppBundleId)
+  }
+  /**
+   * Runs the application for which the platform was started. The platform
+   * must be running.
+   * <p>
+   * The given argument is passed to the application being run.  If it is <code>null</code>
+   * then the command line arguments used in starting the platform, and not consumed
+   * by the platform code, are passed to the application as a <code>String[]</code>.
+   * </p>
+   * @param argument the argument passed to the application. May be <code>null</code>
+   * @return the result of running the application
+   * @throws Exception if anything goes wrong
+   */
+  protected def appEclipse(framework: osgi.Framework) {
+    if (!ApplicationLauncher.running.get)
+      throw new IllegalStateException(EclipseAdaptorMsg.ECLIPSE_STARTUP_NOT_RUNNING)
+    try {
+      val launchDefault = FrameworkProperties.getProperty(osgi.Framework.PROP_APPLICATION_LAUNCHDEFAULT, "true").toBoolean
+      // create the ApplicationLauncher and register it as a service
+      val context = framework.getSystemBundleContext()
+      val allowRelaunch = FrameworkProperties.getProperty(osgi.Framework.PROP_ALLOW_APPRELAUNCH, "false").toBoolean
+      val frameworkLogger = framework.frameworkAdaptor.getFrameworkLog()
+      val appLauncher = new EclipseAppLauncher(context, allowRelaunch, launchDefault, frameworkLogger)
+      val appLauncherRegistration = context.registerService(classOf[org.eclipse.osgi.service.runnable.ApplicationLauncher].getName(), appLauncher, null)
+      // must start the launcher AFTER service registration because this method
+      // blocks and runs the application on the current thread.  This method
+      // will return only after the application has stopped.
+      appLauncher.start(null)
+      while (ApplicationLauncher.development.get) {
+        // A. org.eclipse.e4.ui.workbench.swt.util.BindingProcessingAddon
+        // never use 'dispose' method
+        //
+        // B. even after stop/start of org.eclipse.equinox.event there is a garbage like:
+        // Exception while dispatching event org.osgi.service.event.Event [topic=org/eclipse/e4/ui...
+        // ...
+        // at org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent(EventManager.java:230)
+        // at org.eclipse.osgi.framework.eventmgr.ListenerQueue.dispatchEventSynchronous(ListenerQueue.java:148)
+        // at org.eclipse.equinox.internal.event.EventAdminImpl.dispatchEvent(EventAdminImpl.java:135)
+        // at org.eclipse.equinox.internal.event.EventAdminImpl.sendEvent(EventAdminImpl.java:78)
+        // at org.eclipse.equinox.internal.event.EventComponent.sendEvent(EventComponent.java:39)
+        // at org.eclipse.e4.ui.services.internal.events.EventBroker.send(EventBroker.java:81)
+        // at org.eclipse.e4.ui.internal.workbench.UIEventPublisher.notifyChanged(UIEventPublisher.java:58)
+        // at org.eclipse.emf.common.notify.impl.BasicNotifierImpl.eNotify(BasicNotifierImpl.java:374)
+        // ...
+        // with invalid handlers that point to disposed objects
+        //
+        // C,D,E .... full pack of shit :-( Eclipse 4 is a big pack of shit. Always the same.
+        appLauncher.reStart(null)
+      }
+      appLauncherRegistration.unregister()
+    } catch {
+      case e: Exception =>
+        log.error("Unable to start application.", e)
+        // context can be null if OSGi failed to launch (bug 151413)
+        try { frameworkLauncher.logUnresolvedBundles(framework) } catch { case e: Throwable => }
+        throw e
+    }
+  }
+  /** Get bundle class. */
+  @log
+  protected def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_] = {
+    val framework = ApplicationLauncher.applicationFramework getOrElse
+      { throw new IllegalStateException("OSGi framework is not ready.") }
+    val bundle = framework.getSystemBundleContext().getBundles.find(_.getSymbolicName() == bundleSymbolicName) getOrElse
+      { throw new IllegalStateException(s"OSGi bundle with symbolic name '$bundleSymbolicName' is not found.") }
+    val classLoader = bundle.adapt(classOf[BundleWiring]).getClassLoader()
+    classLoader.loadClass(singletonClassName)
+  }
+  /** Collect all bundles that are directories, save lastModified for each file in bundle. */
+  protected def initializeDevelopmentMonitor(framework: osgi.Framework): immutable.HashMap[Long, immutable.HashMap[File, Long]] = {
+    dev match {
+      case Some(seq) if seq.nonEmpty =>
+        // We are not interested in monitor: We have an explicit bundle list.
+        log.debug("Development mode. Skip monitor initialization.")
+        return immutable.HashMap()
+      case None if !ApplicationLauncher.development.get =>
+        // We are not interested in monitor: development mode disabled.
+        log.debug("Production mode. Skip monitor initialization.")
+        return immutable.HashMap()
+      case _ =>
+        log.debug("Development mode. Initialize monitor.")
+    }
+    val context = framework.getSystemBundleContext()
+    val entries = context.getBundles().map { bundle =>
+      try {
+        val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
+        if (location.isDirectory()) {
+          log.debug(s"Development mode. Add ${bundle.getSymbolicName()} to monitor.")
+          Some(bundle.getBundleId() -> immutable.HashMap(
+            recursiveListFiles(location).map(file => (file, file.lastModified())): _*))
+        } else
+          None
+      }
+    }
+    immutable.HashMap(entries.flatten: _*)
+  }
   /** Convert DI settings to Map for FrameworkProperties */
   @log
   protected def initializeDIProperties(): immutable.Map[String, String] = {
     var properties = mutable.HashMap[String, String]()
     console.foreach(arg => properties(EclipseStarter.PROP_CONSOLE) = arg.toString)
     configArea.foreach(arg => properties(LocationManager.PROP_CONFIG_AREA) = arg.toString)
-    instanceArea.foreach(arg => properties(LocationManager.PROP_INSTANCE_AREA) = arg.toString)
     userArea.foreach(arg => properties(LocationManager.PROP_USER_AREA) = arg.toString)
     launcher.foreach(arg => properties(osgi.Framework.PROP_LAUNCHER) = arg.toString)
     dev.foreach(arg => properties(EclipseStarter.PROP_DEV) = arg.toString)
@@ -242,6 +466,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     arch.foreach(arg => properties(EclipseStarter.PROP_ARCH) = arg.toString)
     nl.foreach(arg => properties(EclipseStarter.PROP_NL) = arg.toString)
     nlExtensions.foreach(arg => properties(osgi.Framework.PROP_NL_EXTENSIONS) = arg.toString)
+    properties(LocationManager.PROP_INSTANCE_AREA) = instanceArea.toString
     properties(EclipseStarter.PROP_BUNDLES_STARTLEVEL) = defaultBundlesStartLevel.toString
     properties(EclipseStarter.PROP_EXTENSIONS) = extensionBundles.mkString(",")
     properties(EclipseStarter.PROP_INITIAL_STARTLEVEL) = defaultInitialStartLevel.toString
@@ -269,6 +494,99 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         return
     }
   }
+  /** Prepare OSGi framework. */
+  @log
+  protected def prepare() {
+    log.info("Prepare environemnt for OSGi framework.")
+    val locationConfigurationAreaConfigState = if (frameworkConfiguration.exists()) "found" else "not found"
+    log.info("OSGi framework configuration:\n    %s %s".format(frameworkConfiguration, locationConfigurationAreaConfigState))
+    val locationDebugOptionsState = if (locationDebugOptions.exists()) "found" else "not found"
+    log.info("OSGi framework debug options:\n    %s %s".format(locationDebugOptions, locationDebugOptionsState))
+    if (debug) {
+      // Redirect org.eclipse.osgi.framework.debug.Debug output to application log
+      val debugFile = new File(locationConfigurationArea, "debug.log")
+      debugFile.delete
+      if (debugFile.createNewFile())
+        FrameworkDebugOptions.getDefault().setFile(debugFile)
+      debugLogRedirectorThread.setDaemon(true)
+      debugLogRedirectorThread.start
+      debugLogRedirector.ready.await()
+
+      // Dump startup properties
+      val buffer = new StringWriter()
+      val writer = new PrintWriter(buffer)
+      val properties = FrameworkProperties.getProperties()
+      writer.println("\n-- listing OSGi startup properties --")
+      properties.stringPropertyNames().toList.sorted.foreach { name =>
+        writer.println("%s=%s".format(name, properties.getProperty(name)))
+      }
+      writer.close()
+      log.debug(buffer.toString)
+    }
+  }
+  /** Refresh bundle if there is at least one modified file. */
+  protected def processDevelopmentMonitor(modifiedBundles: Seq[Long], monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]], framework: osgi.Framework, forceReload: Boolean): Boolean = {
+    val context = framework.getSystemBundleContext()
+    val modified = monitor.keys.flatMap { id =>
+      Option(framework.getBundle(id)) match {
+        case Some(bundle) =>
+          val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
+          if (location.isDirectory()) {
+            val newState = immutable.HashMap(recursiveListFiles(location).map(file => (file, file.lastModified())): _*)
+            val oldState = monitor(id)
+            if (newState.size != oldState.size)
+              Some(id)
+            else {
+              if (forceReload) {
+                log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is forced for reload.")
+                Some(id)
+              } else {
+                if (newState.forall { case (file, time) => oldState(file) == time }) {
+                  log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is unmodified.")
+                  None
+                } else {
+                  log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is changed.")
+                  Some(id)
+                }
+              }
+            }
+          } else {
+            log.warn(s"Development mode. Unable to find bundle $id directory: " + location)
+            Some(id)
+          }
+        case None =>
+          log.warn(s"Development mode. Bundle $id is absent.")
+          Some(id)
+      }
+    }
+    if (modified.nonEmpty) {
+      log.warn(s"Development mode. Refresh bundles with IDs (${modified.mkString(", ")})")
+      frameworkLauncher.refreshBundles((modifiedBundles ++ modified).distinct, maximumDuration, framework)
+    } else
+      false
+  }
+  /** Start report service. */
+  @log
+  def reportStart(context: BundleContext) = report.foreach { report =>
+    report.asInstanceOf[{ def start() }].start()
+    // Start "report" service
+    reportRegistration = Option(context.registerService(classOf[Report], report, null))
+    reportRegistration match {
+      case Some(service) => log.debug("Register launcher report service as: " + service)
+      case None => log.error("Unable to register launcher report service.")
+    }
+  }
+  /** Stop report service. */
+  @log
+  def reportStop(context: BundleContext) = report.foreach { report =>
+    // Stop "main" service
+    reportRegistration.foreach { serviceRegistration =>
+      log.debug("Unregister launcher report service.")
+      serviceRegistration.unregister()
+    }
+    reportRegistration = None
+    report.asInstanceOf[{ def stop() }].stop()
+  }
   /** Run OSGi framework and application. */
   @log
   protected def run() {
@@ -284,6 +602,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         running.notifyAll()
       }
     }
+    System.out.println("Framework is starting up.")
     prepare()
 
     // now we replace EclipseStarter.run(equinoxArgs, new ApplicationLauncher.SplashHandler)
@@ -294,7 +613,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     // 2 iteration - confirm inconsistency of 1 iteration if forcedRestart
     for (retry <- 0 until 3 if running.get) {
       log.info(s"Enter application startup sequence main loop. Retry N: ${retry}.")
-      val (framework, shutdownListeners) = frameworkLauncher.launch(Seq(shutdownHandler))
+      val (framework, shutdownListeners) = frameworkLauncher.launch(frameworkConfiguration, Seq(shutdownHandler))
       // If everything OK, we would have here:
       //   1. framework with STARTING system bundle,
       //   2. console if needed (optional, change code yourself with copy'n'paste)
@@ -356,7 +675,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         // wait for consistency
         if (!frameworkLauncher.waitForConsitentState(maximumDuration, framework))
           log.errorWhere(s"Unable to stay in inconsistent state more than ${maximumDuration / 1000}s. Running anyway.")
-        try { runDigiApp(framework) } catch {
+        try { appDigi(framework) } catch {
           case e: Throwable => log.error(e.getMessage, e)
         }
         ApplicationLauncher.applicationFramework = None
@@ -379,254 +698,10 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       }
     }
     userShutdownHook.foreach(hook => new Thread(hook).start())
+    System.out.println("Framework is stopped.")
   }
 
-  /** Run Digi application. */
-  @log
-  protected def digiRun(context: BundleContext, timeout: Int) {
-    val serviceTracker = new ServiceTracker[AnyRef, AnyRef](context, digiMainService, null)
-    serviceTracker.open()
-    Option(serviceTracker.waitForService(timeout)) match {
-      case Some(main: Runnable) =>
-        // block here
-        log.debug("Start Digi application: " + main)
-        Report.start(context)
-        try {
-          main.run()
-        } catch {
-          case e: Throwable =>
-            log.error("Application terminated: " + e.getMessage, e)
-        }
-        Report.stop(context)
-        log.debug(s"Digi application $main is completed.")
-      case Some(_) =>
-        log.error(s"Unable to process incorrect service '$digiMainService'")
-      case None =>
-        log.error(s"Unable to get service for '$digiMainService'")
-    }
-    serviceTracker.close()
-  }
-  /** Get bundle class. */
-  @log
-  protected def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_] = {
-    val framework = ApplicationLauncher.applicationFramework getOrElse
-      { throw new IllegalStateException("OSGi framework is not ready.") }
-    val bundle = framework.getSystemBundleContext().getBundles.find(_.getSymbolicName() == bundleSymbolicName) getOrElse
-      { throw new IllegalStateException(s"OSGi bundle with symbolic name '$bundleSymbolicName' is not found.") }
-    val classLoader = bundle.adapt(classOf[BundleWiring]).getClassLoader()
-    classLoader.loadClass(singletonClassName)
-  }
-  /** Collect all bundles that are directories, save lastModified for each file in bundle. */
-  protected def initializeDevelopmentMonitor(framework: osgi.Framework): immutable.HashMap[Long, immutable.HashMap[File, Long]] = {
-    log.debug("Development mode. Initialize monitor.")
-    val context = framework.getSystemBundleContext()
-    val entries = context.getBundles().map { bundle =>
-      try {
-        val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
-        if (location.isDirectory()) {
-          log.debug(s"Development mode. Add ${bundle.getSymbolicName()} to monitor.")
-          Some(bundle.getBundleId() -> immutable.HashMap(
-            recursiveListFiles(location).map(file => (file, file.lastModified())): _*))
-        } else
-          None
-      }
-    }
-    immutable.HashMap(entries.flatten: _*)
-  }
-  /** Prepare OSGi framework. */
-  @log
-  protected def prepare() {
-    log.info("Prepare environemnt for OSGi framework.")
-    val locationConfigurationAreaConfigState = if (locationConfigurationAreaConfig.exists()) "found" else "not found"
-    log.info("OSGi framework configuration:\n    %s %s".format(locationConfigurationAreaConfig, locationConfigurationAreaConfigState))
-    val locationDebugOptionsState = if (locationDebugOptions.exists()) "found" else "not found"
-    log.info("OSGi framework debug options:\n    %s %s".format(locationDebugOptions, locationDebugOptionsState))
-    if (debug) {
-      // Redirect org.eclipse.osgi.framework.debug.Debug output to application log
-      val debugFile = new File(locationConfigurationArea, "debug.log")
-      debugFile.delete
-      if (debugFile.createNewFile())
-        FrameworkDebugOptions.getDefault().setFile(debugFile)
-      debugLogRedirectorThread.setDaemon(true)
-      debugLogRedirectorThread.start
-      debugLogRedirector.ready.await()
-
-      // Dump startup properties
-      val buffer = new StringWriter()
-      val writer = new PrintWriter(buffer)
-      val properties = FrameworkProperties.getProperties()
-      writer.println("\n-- listing OSGi startup properties --")
-      properties.stringPropertyNames().toList.sorted.foreach { name =>
-        writer.println("%s=%s".format(name, properties.getProperty(name)))
-      }
-      writer.close()
-      log.debug(buffer.toString)
-    }
-  }
-  /** Refresh bundle if there is at least one modified file. */
-  protected def processDevelopmentMonitor(monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]], framework: osgi.Framework, forceReload: Boolean): Boolean = {
-    val context = framework.getSystemBundleContext()
-    val modified = monitor.keys.flatMap { id =>
-      Option(framework.getBundle(id)) match {
-        case Some(bundle) =>
-          val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
-          if (location.isDirectory()) {
-            val newState = immutable.HashMap(recursiveListFiles(location).map(file => (file, file.lastModified())): _*)
-            val oldState = monitor(id)
-            if (newState.size != oldState.size)
-              Some(id)
-            else {
-              if (forceReload) {
-                log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is forced for reload.")
-                Some(id)
-              } else {
-                if (newState.forall { case (file, time) => oldState(file) == time }) {
-                  log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is unmodified.")
-                  None
-                } else {
-                  log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is changed.")
-                  Some(id)
-                }
-              }
-            }
-          } else {
-            log.warn(s"Development mode. Unable to find bundle $id directory: " + location)
-            Some(id)
-          }
-        case None =>
-          log.warn(s"Development mode. Bundle $id is absent.")
-          Some(id)
-      }
-    }
-    if (modified.nonEmpty) {
-      log.warn(s"Development mode. Refresh bundles with IDs (${modified.mkString(", ")})")
-      frameworkLauncher.refreshBundles(modified, maximumDuration, framework)
-    } else
-      false
-  }
-  /** Digi application main loop. */
-  protected def runDigiApp(framework: osgi.Framework) {
-    ApplicationLauncher.digiApp.set(true)
-    val wait = 60000
-    if (!ApplicationLauncher.running.get)
-      throw new IllegalStateException(EclipseAdaptorMsg.ECLIPSE_STARTUP_NOT_RUNNING)
-    val context = framework.getSystemBundleContext()
-    digiRun(context, wait)
-    /*
-     * Development mode
-     */
-    // map for directory bundles: bundle id -> map(file in directory, modification time)
-    var monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]] = null
-    var forceReload = false
-    while (ApplicationLauncher.development.get()) {
-      forceReload = false
-      if (monitor == null) {
-        // If it is the first time.
-        monitor = if (devBundles.nonEmpty)
-          // We are not interested in monitor - we have an explicit bundle list.
-          immutable.HashMap()
-        else
-          // Collect bundle modification time.
-          initializeDevelopmentMonitor(framework)
-      } else {
-        if (ApplicationLauncher.digiApp.get) {
-          try {
-            digiRun(context, wait)
-          } catch {
-            case e: ClassNotFoundException =>
-              log.warn("Digi application halted(recompilation?): " + e.getMessage, e)
-              Thread.sleep(5000)
-              forceReload = true
-            case e: Throwable =>
-              log.error("Digi application halted: " + e.getMessage, e)
-              Thread.sleep(1000)
-          }
-        } else
-          ApplicationLauncher.development.synchronized { ApplicationLauncher.development.wait() }
-      }
-      if (devBundles.isEmpty) {
-        // devBundles is empty
-        // We search for modified files in bundle directories
-        log.warn(s"Development mode. Refresh bundles only modified bundles.")
-        if (processDevelopmentMonitor(monitor, framework, forceReload))
-          monitor = initializeDevelopmentMonitor(framework)
-      } else {
-        // devBundles is not empty.
-        // Force to reload all development bundles.
-        val toReload = framework.getSystemBundleContext().getBundles().filter(b => devBundles.exists(_ == b.getSymbolicName()))
-        if (toReload.size != devBundles.size) {
-          val lost = devBundles.filterNot(b => toReload.exists(_.getSymbolicName() == b))
-          System.err.println("Not all development bundles found. Lost: " + lost.mkString(","))
-          log.error("Not all development bundles found. Lost: " + lost.mkString(","))
-        }
-        val modified = toReload.map(_.getBundleId())
-        log.warn(s"Development mode. Refresh bundles with IDs (${modified.mkString(", ")})")
-        frameworkLauncher.refreshBundles(modified, maximumDuration, framework)
-        // Apply new DI
-        // Initialize DI for our OSGi infrastructure.
-        applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
-      }
-    }
-  }
-  /**
-   * Runs the application for which the platform was started. The platform
-   * must be running.
-   * <p>
-   * The given argument is passed to the application being run.  If it is <code>null</code>
-   * then the command line arguments used in starting the platform, and not consumed
-   * by the platform code, are passed to the application as a <code>String[]</code>.
-   * </p>
-   * @param argument the argument passed to the application. May be <code>null</code>
-   * @return the result of running the application
-   * @throws Exception if anything goes wrong
-   */
-  protected def runEclipseApp(framework: osgi.Framework) {
-    if (!ApplicationLauncher.running.get)
-      throw new IllegalStateException(EclipseAdaptorMsg.ECLIPSE_STARTUP_NOT_RUNNING)
-    try {
-      val launchDefault = FrameworkProperties.getProperty(osgi.Framework.PROP_APPLICATION_LAUNCHDEFAULT, "true").toBoolean
-      // create the ApplicationLauncher and register it as a service
-      val context = framework.getSystemBundleContext()
-      val allowRelaunch = FrameworkProperties.getProperty(osgi.Framework.PROP_ALLOW_APPRELAUNCH, "false").toBoolean
-      val frameworkLogger = framework.frameworkAdaptor.getFrameworkLog()
-      val appLauncher = new EclipseAppLauncher(context, allowRelaunch, launchDefault, frameworkLogger)
-      val appLauncherRegistration = context.registerService(classOf[org.eclipse.osgi.service.runnable.ApplicationLauncher].getName(), appLauncher, null)
-      // must start the launcher AFTER service registration because this method
-      // blocks and runs the application on the current thread.  This method
-      // will return only after the application has stopped.
-      appLauncher.start(null)
-      while (ApplicationLauncher.development.get) {
-        // A. org.eclipse.e4.ui.workbench.swt.util.BindingProcessingAddon
-        // never use 'dispose' method
-        //
-        // B. even after stop/start of org.eclipse.equinox.event there is a garbage like:
-        // Exception while dispatching event org.osgi.service.event.Event [topic=org/eclipse/e4/ui...
-        // ...
-        // at org.eclipse.osgi.framework.eventmgr.EventManager.dispatchEvent(EventManager.java:230)
-        // at org.eclipse.osgi.framework.eventmgr.ListenerQueue.dispatchEventSynchronous(ListenerQueue.java:148)
-        // at org.eclipse.equinox.internal.event.EventAdminImpl.dispatchEvent(EventAdminImpl.java:135)
-        // at org.eclipse.equinox.internal.event.EventAdminImpl.sendEvent(EventAdminImpl.java:78)
-        // at org.eclipse.equinox.internal.event.EventComponent.sendEvent(EventComponent.java:39)
-        // at org.eclipse.e4.ui.services.internal.events.EventBroker.send(EventBroker.java:81)
-        // at org.eclipse.e4.ui.internal.workbench.UIEventPublisher.notifyChanged(UIEventPublisher.java:58)
-        // at org.eclipse.emf.common.notify.impl.BasicNotifierImpl.eNotify(BasicNotifierImpl.java:374)
-        // ...
-        // with invalid handlers that point to disposed objects
-        //
-        // C,D,E .... full pack of shit :-( Eclipse 4 is a big pack of shit. Always the same.
-        appLauncher.reStart(null)
-      }
-      appLauncherRegistration.unregister()
-    } catch {
-      case e: Exception =>
-        log.error("Unable to start application.", e)
-        // context can be null if OSGi failed to launch (bug 151413)
-        try { frameworkLauncher.logUnresolvedBundles(framework) } catch { case e: Throwable => }
-        throw e
-    }
-  }
-
-  // We are unable to use FileUtil here because of class loader restriction.
+  // We are unable to use Digi.FileUtil here because of class loader restriction.
   /**
    * Recursively list files.
    * @param f Initial directory
@@ -768,5 +843,10 @@ object ApplicationLauncher extends Loggable {
   /** Splash thread stub. */
   class SplashHandler extends Thread {
     override def run() {}
+  }
+  object ReturnCode {
+    val OK = 0 // IApplication.EXIT_OK
+    val RESTART = 23 // IApplication.EXIT_RESTART
+    val ERROR = -1 // Custom/error
   }
 }

@@ -72,6 +72,8 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
   @volatile private var cleanThread: Option[Thread] = None
   /** Flag indicating whether stack trace generation enabled. */
   val allowGenerateStackTrace = injectOptional[Boolean]("Report.TraceFileEnabled") getOrElse true
+  /** General information about application. */
+  val info = getInfo()
   /** Number of saved log files. */
   val keepLogFiles: Int = injectOptional[Int]("Report.KeepLogFiles") getOrElse 4
   /** Quantity of saved trace files. */
@@ -235,51 +237,13 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
         e.printStackTrace()
     }
   }
-  /** Returns general information about application */
-  def info(): String = {
-    // Get components information if any.
-    val versionProperties = getClass.getClassLoader.getResources("version.properties")
-    val components = for (resURL <- versionProperties) yield try {
-      val properties = new Properties
-      properties.load(resURL.openStream())
-      Option(properties.getProperty("name")).map { name =>
-        val version = Option(properties.getProperty("version")).getOrElse("0")
-        val build = Option(properties.getProperty("build")) match {
-          case Some(rawBuild) =>
-            (try { dateString(new Date(rawBuild.toLong * 1000)) } catch { case e: Throwable => rawBuild }) + s" (${rawBuild})"
-          case None => "0"
-        }
-        s"${name}: version: ${version}, build: ${build}"
-      }
-    } catch {
-      case e: Throwable => //
-        log.error("Unable to load version.properties for " + resURL, e)
-        None
-    }
-    // Get SWT information if any.
-    // SWT native library is poisoned JVM. Reload of SWT bundle is doomed from the beginning by design
-    //   so we are nothing to be afraid of: like class loader lock.
-    val platform = try {
-      Option(Class.forName("org.eclipse.swt.SWT").getMethod("getPlatform").invoke(null))
-    } catch {
-      case e: Throwable =>
-        log.error(e.getMessage(), e)
-        None
-    }
-    // Generate report
-    "report path: " + Report.path + "\n" +
-      "os: " + Option(System.getProperty("os.name")).getOrElse("UNKNOWN") + "\n" +
-      "arch: " + Option(System.getProperty("os.arch")).getOrElse("UNKNOWN") + "\n" +
-      platform.map(p => s"platform: $p\n").getOrElse("") +
-      components.flatten.toSeq.sorted.mkString("\n") + "\n"
-  }
   /** Process the new report */
   def process(record: Option[Message]) = {
     //ReportDialog.submit(record.map(r => "Exception " + r.message))
   }
   /** Start reporter log intercepter and application service. */
   @log
-  def start(context: BundleContext) {
+  def start() {
     log.info("Start reporter.")
     Event.subscribe(LogSubscriber)
     try {
@@ -297,8 +261,8 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
   }
   /** Stop reporter log intercepter and application service. */
   @log
-  def stop(context: BundleContext) {
-    log.info("Start reporter.")
+  def stop() {
+    log.info("Stop reporter.")
     Report.active = false
     Event.removeSubscription(LogSubscriber)
   }
@@ -331,6 +295,43 @@ class Report(implicit val bindingModule: BindingModule) extends Report.Interface
     }
   }
 
+  /** Returns general information about application */
+  protected def getInfo(): String = {
+    // Get components information if any.
+    val versionProperties = getClass.getClassLoader.getResources("version.properties")
+    val components = for (resURL <- versionProperties) yield try {
+      val properties = new Properties
+      properties.load(resURL.openStream())
+      Option(properties.getProperty("name")).map { name =>
+        val version = Option(properties.getProperty("version")).getOrElse("0")
+        val build = Option(properties.getProperty("build")) match {
+          case Some(rawBuild) =>
+            (try { dateString(new Date(rawBuild.toLong * 1000)) } catch { case e: Throwable => rawBuild }) + s" (${rawBuild})"
+          case None => "0"
+        }
+        s"${name}: version: ${version}, build: ${build}"
+      }
+    } catch {
+      case e: Throwable => //
+        log.error("Unable to load version.properties for " + resURL, e)
+        None
+    }
+    // Get SWT information if any.
+    // SWT native library is poisoned JVM. Reload of SWT bundle is doomed from the beginning by design
+    //   so we are nothing to be afraid of: like class loader lock.
+    val platform = try {
+      Option(Class.forName("org.eclipse.swt.SWT").getMethod("getPlatform").invoke(null))
+    } catch {
+      case e: Throwable =>
+        log.error(e.getMessage(), e)
+        None
+    }
+    // Generate report
+    "os: " + Option(System.getProperty("os.name")).getOrElse("UNKNOWN") + "\n" +
+      "arch: " + Option(System.getProperty("os.arch")).getOrElse("UNKNOWN") + "\n" +
+      platform.map(p => s"platform: $p\n").getOrElse("") +
+      components.flatten.toSeq.sorted.mkString("\n") + "\n"
+  }
   /**
    * Build sequence of files to delete
    * @return keep suffixes, files to delete
@@ -442,6 +443,8 @@ object Report extends Loggable {
   def inner() = DI.implementation
 
   trait Interface extends api.Report {
+    /** General information about application. */
+    val info: String
     /** Number of saved log files */
     val keepLogFiles: Int
     /** Quantity of saved trace files */
@@ -471,8 +474,6 @@ object Report extends Loggable {
     def process(record: Option[Message])
     /** Returns file prefix */
     def filePrefix(): String
-    /** Returns general information about application */
-    def info(): String
   }
   /**
    * Dependency injection routines

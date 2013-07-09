@@ -69,6 +69,16 @@ class RootClassLoader(
   // It is never returns null, as the specification defines
   /** Loads the class with the specified binary name. */
   override protected def loadClass(name: String, resolve: Boolean): Class[_] = {
+    // Try to load from delegation loader.
+    if (delegationLoader != null) {
+      val iterator = bootDelegations.iterator
+      while (iterator.hasNext)
+        if (name.matches(iterator.next)) try {
+          return delegationLoader.loadClass(name)
+        } catch {
+          case _: ClassNotFoundException =>
+        }
+    }
     // Try to load from parent loader.
     try {
       if (parent != null)
@@ -81,16 +91,6 @@ class RootClassLoader(
       return super.loadClass(name, resolve)
     } catch {
       case _: ClassNotFoundException =>
-    }
-    // Try to load from delegation loader.
-    if (delegationLoader != null) {
-      val iterator = bootDelegations.iterator
-      while (iterator.hasNext)
-        if (name.matches(iterator.next)) try {
-          return delegationLoader.loadClass(name)
-        } catch {
-          case _: ClassNotFoundException =>
-        }
     }
 
     throw new ClassNotFoundException(name)
