@@ -418,7 +418,8 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   protected def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_] = {
     val framework = ApplicationLauncher.applicationFramework getOrElse
       { throw new IllegalStateException("OSGi framework is not ready.") }
-    val bundle = framework.getSystemBundleContext().getBundles.find(_.getSymbolicName() == bundleSymbolicName) getOrElse
+    val bundle = framework.getSystemBundleContext().getBundles.find(bundle =>
+      bundle.getSymbolicName() == bundleSymbolicName && (bundle.getState() == Bundle.RESOLVED || bundle.getState() == Bundle.ACTIVE)) getOrElse
       { throw new IllegalStateException(s"OSGi bundle with symbolic name '$bundleSymbolicName' is not found.") }
     val classLoader = bundle.adapt(classOf[BundleWiring]).getClassLoader()
     classLoader.loadClass(singletonClassName)
