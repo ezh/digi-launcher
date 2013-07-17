@@ -293,7 +293,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         dev.getOrElse(Seq()) match {
           case Nil =>
             // We search for modified files in bundle directories
-            log.warn(s"Development mode. Refresh bundles only modified bundles.")
+            log.warn(s"Development mode. Refresh only modified bundles.")
             if (processDevelopmentMonitor(modifiedBundles, monitor, framework, forceReload)) {
               monitor = initializeDevelopmentMonitor(framework)
               // Apply new DI, initialize DI for our OSGi infrastructure.
@@ -560,7 +560,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
           Some(id)
       }
     }
-    if (modified.nonEmpty) {
+    if (modified.nonEmpty || modifiedBundles.nonEmpty) {
       log.warn(s"Development mode. Refresh bundles with IDs (${modified.mkString(", ")})")
       frameworkLauncher.refreshBundles((modifiedBundles ++ modified).distinct, maximumDuration, framework)
     } else
