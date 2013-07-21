@@ -339,6 +339,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         // block here
         log.debug("Start Digi application: " + main)
         reportStart(context)
+        ApplicationLauncher.digiMainService = Some(digiMainService)
         try {
           resultAppBundleId = FrameworkUtil.getBundle(main.getClass()).getBundleId()
           resultCode = main.call().asInstanceOf[Int]
@@ -346,6 +347,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
           case e: Throwable =>
             log.error("Application terminated: " + e.getMessage, e)
         }
+        ApplicationLauncher.digiMainService = None
         reportStop(context)
         log.debug(s"Digi application $main is completed.")
       case Some(_) =>
@@ -687,6 +689,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
           log.info("Application is completed. Shutdown framework.")
           commandProvider.stop()
           framework.getSystemBundleContext().getBundle().stop()
+          log.info("Framework is shutted down.")
         } else
           log.info("Application is completed.")
         running.synchronized {

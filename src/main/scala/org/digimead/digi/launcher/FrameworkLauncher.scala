@@ -274,6 +274,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
   /** Refresh bundle. */
   @log
   def refreshBundles(id: Iterable[Long], singleOperationTimeout: Int, framework: osgi.Framework): Boolean = {
+    log.debug(s"Refresh bundles with id (${id.mkString(",")}).")
     val context = framework.getSystemBundleContext()
     Option(context.getServiceReference(classOf[PackageAdmin])) match {
       case Some(packageAdminRef) =>
@@ -293,7 +294,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
                 states.forall(s => s != Bundle.ACTIVE && s != Bundle.STOPPING))
               if (!waitForConsitentState(singleOperationTimeout, framework))
                 log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
-              log.debug(s"Refresh bundles (${bundles.map(_.getSymbolicName()).mkString(",")}).")
+              log.info(s"Refresh bundles (${bundles.map(_.getSymbolicName()).mkString(",")}).")
               packageAdmin.refreshPackages(bundles.toArray)
               if (!waitForConsitentState(singleOperationTimeout, framework))
                 log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
