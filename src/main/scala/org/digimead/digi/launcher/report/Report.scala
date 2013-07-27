@@ -116,7 +116,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
   /** Clean report files except active */
   @log
   def cleanAfterReview(dir: File = path): Unit = if (!submitInProgressLock.get()) synchronized {
-    log.debug("clean reports after review")
+    log.debug("Clean reports after review")
     val reports = Option(dir.list()).getOrElse(Array[String]())
     if (reports.isEmpty)
       return
@@ -129,7 +129,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
           this.pid == pid
         } catch {
           case e: Throwable =>
-            log.error(s"unable to find pid for %s: %s".format(report.getName(), e.getMessage()), e)
+            log.error(s"Unable to find pid for %s: %s".format(report.getName(), e.getMessage()), e)
             false
         }
         if (!active || !report.getName.endsWith(logFileExtension)) {
@@ -240,7 +240,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
   }
   /** Prepare for upload. */
   def prepareForUpload(): Seq[File] = Seq()
-  /** Register listener. */
+  /** Register listener of outgoing log events that contains throwable. */
   def register(listener: Runnable) = synchronized {
     if (!listeners.contains(listener)) {
       log.debug("Register listener " + listener)
@@ -248,6 +248,8 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
     } else
       throw new IllegalArgumentException("Listener ${listener} is already registered.")
   }
+  /** Rotate log files. */
+  def rotate() = synchronized { org.digimead.digi.lib.log.api.Logging.rotate }
   /** Start reporter log intercepter and application service. */
   @log
   def start() {
@@ -273,7 +275,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
     Report.active = false
     Event.removeSubscription(LogSubscriber)
   }
-  /** Register listener. */
+  /** Unregister listener of outgoing log events. */
   @log
   def unregister(listener: Runnable) = synchronized {
     if (listeners.contains(listener)) {

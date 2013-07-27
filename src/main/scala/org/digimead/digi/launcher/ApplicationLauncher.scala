@@ -41,6 +41,7 @@ import scala.collection.JavaConversions._
 import scala.collection.immutable
 import scala.collection.mutable
 
+import org.digimead.digi.launcher.report.ReportAppender
 import org.digimead.digi.launcher.report.api.Report
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.log.api.Loggable
@@ -310,7 +311,9 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
             // Force to reload all development bundles.
             val modified = toReload.map(_.getBundleId())
             log.warn(s"Development mode. Refresh bundles with IDs (${modified.mkString(", ")})")
-            frameworkLauncher.refreshBundles(modified, maximumDuration, framework)
+            frameworkLauncher.refreshBundles(modified, maximumDuration, framework) {
+              report.foreach { report => report.rotate }
+            }
             // Apply new DI, initialize DI for our OSGi infrastructure.
             applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
         }
@@ -318,7 +321,9 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         // We are in production mode but application requests restart
         // modifiedBundles MUST contain at least application bundle ID (look at appDigiCall)
         log.warn(s"Production mode. Refresh application bundle with IDs ${modifiedBundles.mkString(", ")}")
-        frameworkLauncher.refreshBundles(modifiedBundles, maximumDuration, framework)
+        frameworkLauncher.refreshBundles(modifiedBundles, maximumDuration, framework) {
+          report.foreach { report => report.rotate }
+        }
         // Apply new DI, initialize DI for our OSGi infrastructure.
         applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
       }
@@ -564,7 +569,9 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     }
     if (modified.nonEmpty || modifiedBundles.nonEmpty) {
       log.warn(s"Development mode. Refresh bundles with IDs (${modified.mkString(", ")})")
-      frameworkLauncher.refreshBundles((modifiedBundles ++ modified).distinct, maximumDuration, framework)
+      frameworkLauncher.refreshBundles((modifiedBundles ++ modified).distinct, maximumDuration, framework) {
+        report.foreach { report => report.rotate }
+      }
     } else
       false
   }

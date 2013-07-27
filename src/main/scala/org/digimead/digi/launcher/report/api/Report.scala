@@ -55,8 +55,10 @@ trait Report {
   def filePrefix(): String
   /** Prepare for upload. */
   def prepareForUpload(): Seq[File]
-  /** Register listener. */
+  /** Register listener of outgoing log events that contains throwable. */
   def register(listener: Runnable)
-  /** Register listener. */
+  /** Rotate log files. */
+  def rotate()
+  /** Unregister listener of outgoing log events. */
   def unregister(listener: Runnable)
 }
