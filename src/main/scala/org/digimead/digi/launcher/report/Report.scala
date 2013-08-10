@@ -96,11 +96,11 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
   @log
   def clean(): Unit = if (!submitInProgressLock.get()) synchronized {
     if (cleanThread.nonEmpty) {
-      log.warn("cleaning in progress, skip")
+      log.warn("Cleaning in progress, skip.")
       return
     }
     cleanThread = Some(new Thread("report cleaner for " + Report.getClass.getName) {
-      log.debug("new report cleaner thread %s alive".format(this.getId.toString))
+      log.debug(s"New report cleaner thread ${this.getId.toString} is alive.")
       this.setDaemon(true)
       override def run() = try {
         toClean(path, Seq())._2.foreach(_.delete)
@@ -116,7 +116,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
   /** Clean report files except active */
   @log
   def cleanAfterReview(dir: File = path): Unit = if (!submitInProgressLock.get()) synchronized {
-    log.debug("Clean reports after review")
+    log.debug("Clean reports after review.")
     val reports = Option(dir.list()).getOrElse(Array[String]())
     if (reports.isEmpty)
       return
@@ -129,11 +129,11 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
           this.pid == pid
         } catch {
           case e: Throwable =>
-            log.error(s"Unable to find pid for %s: %s".format(report.getName(), e.getMessage()), e)
+            log.error(s"Unable to find pid for ${report.getName()}: ${e.getMessage()}.", e)
             false
         }
         if (!active || !report.getName.endsWith(logFileExtension)) {
-          log.info("delete " + report.getName)
+          log.info(s"Delete ${report.getName}.")
           report.delete
         }
       })
@@ -170,12 +170,12 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
             false
         } catch {
           case e: Throwable =>
-            log.error(s"unable to find pid for %s: %s".format(report.getName(), e.getMessage()), e)
+            log.error(s"Unable to find pid for ${report.getName()}: ${e.getMessage()}.", e)
             false
         }
         if (!active && report.length > 0) {
           // compress log files
-          log.info("save compressed log file " + compressed.getName)
+          log.info(s"Save compressed log file ${compressed.getName}.")
           val is = new BufferedInputStream(new FileInputStream(report))
           var zos: OutputStream = null
           try {
@@ -186,10 +186,10 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
               zos.close()
           }
           if (compressed.length > 0) {
-            log.info("delete uncompressed log file " + reportName)
+            log.info(s"Delete uncompressed log file ${reportName}.")
             report.delete
           } else {
-            log.warn("unable to compress " + reportName + ", delete broken archive")
+            log.warn(s"Unable to compress ${reportName}, delete broken archive.")
             compressed.delete
           }
         }
@@ -201,10 +201,10 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
   }
   /** Generate the stack trace report */
   @log
-  def generateStackTrace(e: Throwable, when: Date) {
+  def generateStackTrace(message: String, e: Throwable, when: Date) {
     if (!path.exists())
       if (!path.mkdirs()) {
-        log.fatal("Unable to create log path " + path)
+        log.fatal(s"Unable to create log path ${path}.")
         return
       }
     // take actual view
@@ -221,10 +221,14 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
     }
     try {
       val file = new File(path, reportName)
-      log.debug("Writing unhandled exception to: " + file)
+      log.debug(s"Writing unhandled exception to: ${file}.")
       // Write the stacktrace to disk
       val bos = new BufferedWriter(new FileWriter(file))
       bos.write(dateString(when) + "\n")
+      if (message != null)
+        bos.write(message + "\n\n")
+      else
+        bos.write("-\n\n")
       bos.write(result.toString())
       bos.flush()
       // Close up everything
@@ -243,10 +247,10 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
   /** Register listener of outgoing log events that contains throwable. */
   def register(listener: Runnable) = synchronized {
     if (!listeners.contains(listener)) {
-      log.debug("Register listener " + listener)
+      log.debug(s"Register listener ${listener}.")
       listeners = listeners :+ listener
     } else
-      throw new IllegalArgumentException("Listener ${listener} is already registered.")
+      throw new IllegalArgumentException(s"Listener ${listener} is already registered.")
   }
   /** Rotate log files. */
   def rotate() = synchronized { org.digimead.digi.lib.log.api.Logging.rotate }
@@ -258,7 +262,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
     try {
       if (!path.exists())
         if (!path.mkdirs()) {
-          log.fatal("unable to create report log path " + path)
+          log.fatal(s"Unable to create report log path ${path}.")
           return
         }
       clean()
@@ -279,7 +283,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
   @log
   def unregister(listener: Runnable) = synchronized {
     if (listeners.contains(listener)) {
-      log.debug("Unregister listener " + listener)
+      log.debug(s"Unregister listener ${listener}.")
       listeners = listeners.filterNot(_ == listener)
     }
   }
@@ -302,7 +306,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
       }
     } catch {
       case e: Throwable => //
-        log.error("Unable to load version.properties for " + resURL, e)
+        log.error(s"Unable to load version.properties for ${resURL}.", e)
         None
     }
     // Get SWT information if any.
@@ -331,17 +335,17 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
     val traceFiles = files.filter(_._1.endsWith(traceFileExtension)).sortBy(_._1).reverse
     traceFiles.drop(keepTrcFiles).foreach {
       case (name, file) =>
-        log.info("delete outdated stacktrace file " + name)
+        log.info(s"Delete outdated stacktrace file ${name}.")
         result = result :+ file
     }
     files.filter(_._1.endsWith(".description")).foreach {
       case (name, file) =>
-        log.info("delete outdated description file " + name)
+        log.info(s"Delete outdated description file ${name}.")
         result = result :+ file
     }
     files.filter(_._1.endsWith(".png")).foreach {
       case (name, file) =>
-        log.info("delete outdated png file " + name)
+        log.info(s"Delete outdated png file ${name}.")
         result = result :+ file
     }
     // sequence of name suffixes: Tuple2(uncompressed suffix, compressed suffix)
@@ -364,12 +368,12 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
         Array(logSuffix.takeWhile(_ != '.') + "." + logFileExtensionPrefix + logFileExtension,
           logSuffix.takeWhile(_ != '.') + "." + logFileExtensionPrefix + "z" + logFileExtension)
     }).flatten.distinct
-    log.debug("keep log files with suffixes: " + (keepLog ++ keepForTraceReport).mkString(", "))
+    log.debug(s"Keep log files with suffixes: ${(keepLog ++ keepForTraceReport).mkString(", ")}.")
     val keepSuffixes = (keepLog ++ keepForTraceReport ++ keep).distinct
     logFiles.drop(keepLogFiles).foreach {
       case (name, file) =>
         if (!keepSuffixes.exists(name.endsWith)) {
-          log.info("delete outdated log file " + name)
+          log.info(s"Delete outdated log file ${name}.")
           result = result :+ file
         }
     }
@@ -409,7 +413,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
             future {
               if (lock.tryLock()) try {
                 if (allowGenerateStackTrace)
-                  generateStackTrace(event.record.throwable.get, event.record.date)
+                  generateStackTrace(event.record.tag + ": " + event.record.message, event.record.throwable.get, event.record.date)
                 listeners.foreach(_.run())
               } finally {
                 lock.unlock()

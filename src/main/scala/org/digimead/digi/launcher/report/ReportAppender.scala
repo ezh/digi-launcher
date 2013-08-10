@@ -118,13 +118,13 @@ object ReportAppender extends Appender {
       if (!Report.path.exists)
         Report.path.mkdirs
       if (file.exists) {
-        Logging.commonLogger.debug("open new log file " + file)
+        Logging.commonLogger.debug("Open new log file " + file)
         Some(file)
       } else if (file.createNewFile) {
-        Logging.commonLogger.info("create new log file " + file)
+        Logging.commonLogger.info("Create new log file " + file)
         Some(file)
       } else {
-        Logging.commonLogger.error("unable to create log file " + file)
+        Logging.commonLogger.error("Unable to create log file " + file)
         None
       }
     }

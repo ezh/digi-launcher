@@ -505,7 +505,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   /** Prepare OSGi framework. */
   @log
   protected def prepare() {
-    log.info("Prepare environemnt for OSGi framework.")
+    log.info("Prepare environment for OSGi framework.")
     val locationConfigurationAreaConfigState = if (frameworkConfiguration.exists()) "found" else "not found"
     log.info("OSGi framework configuration:\n    %s %s".format(frameworkConfiguration, locationConfigurationAreaConfigState))
     val locationDebugOptionsState = if (locationDebugOptions.exists()) "found" else "not found"
