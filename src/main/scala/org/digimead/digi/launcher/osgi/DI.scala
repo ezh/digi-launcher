@@ -58,8 +58,8 @@ class DI extends Loggable {
     } catch {
       // Eval.CompilerException class is unavailable for the current class loader
       case e if e.getClass.getName().endsWith("Eval$CompilerException") =>
-        log.error("Error in DI file ${script}: " + e.getMessage(), e)
-        System.err.println("Error in DI file ${script}: " + e.getMessage() + "\n")
+        log.error(s"Error in DI file ${script}: ${e.getMessage()}", e)
+        System.err.println(s"Error in DI file ${script}: ${e.getMessage()}\n")
         None
     }
   }
@@ -110,6 +110,7 @@ object DI extends Loggable {
         } catch {
           case _: ClassNotFoundException =>
         }
+      log.debug("Try to load DI class " + name)
       // Try to load from parent loader.
       if (parent != null)
         try {
@@ -133,7 +134,7 @@ object DI extends Loggable {
       // Try to load from this loader as a last chance.
       try {
         val clazz = super.loadClass(name, resolve)
-        log.debug("Loading direct from jar: " + clazz)
+        log.debug("Loading directly from jar: " + clazz)
         return clazz
       } catch {
         case _: ClassNotFoundException =>
