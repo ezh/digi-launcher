@@ -201,7 +201,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
   }
   /** Generate the stack trace report */
   @log
-  def generateStackTrace(message: String, e: Throwable, when: Date) {
+  def generateStackTrace(pid: Int, tid: Long, message: String, e: Throwable, when: Date) {
     if (!path.exists())
       if (!path.mkdirs()) {
         log.fatal(s"Unable to create log path ${path}.")
@@ -224,7 +224,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
       log.debug(s"Writing unhandled exception to: ${file}.")
       // Write the stacktrace to disk
       val bos = new BufferedWriter(new FileWriter(file))
-      bos.write(dateString(when) + "\n")
+      bos.write("date:%s; process: %s; thread: %s.\n".format(dateString(when), pid.toString, tid.toString))
       if (message != null)
         bos.write(message + "\n\n")
       else
@@ -413,7 +413,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
             future {
               if (lock.tryLock()) try {
                 if (allowGenerateStackTrace)
-                  generateStackTrace(event.record.tag + ": " + event.record.message, event.record.throwable.get, event.record.date)
+                  generateStackTrace(event.record.pid, event.record.tid, event.record.tag + ": " + event.record.message, event.record.throwable.get, event.record.date)
                 listeners.foreach(_.run())
               } finally {
                 lock.unlock()

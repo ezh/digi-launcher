@@ -207,13 +207,14 @@ object Launcher extends Loggable {
   }
   /** Get bundle singleton. */
   def singleton(bundleSymbolicName: String, singletonClassName: String): AnyRef = {
+    assert(singletonClassName.endsWith("$"), "Incorrect singleton class name: " + singletonClassName)
     val launcher = this.launcher getOrElse
       { throw new IllegalStateException("Launcher is not initialized.") }
     val clazz = launcher.getBundleClass(bundleSymbolicName, singletonClassName)
     val declaredFields = clazz.getDeclaredFields().toList
     declaredFields.find(field => field.getName() == "MODULE$") match {
-      case Some(modField) => modField.get(clazz)
-      case None => clazz.newInstance().asInstanceOf[AnyRef]
+      case Some(modField) => modField.get(null)
+      case None => throw new IllegalStateException(singletonClassName + " MODULE$ field not found.\n Singleton '" + clazz.getName + "' fields: " + declaredFields.mkString(","))
     }
   }
 
