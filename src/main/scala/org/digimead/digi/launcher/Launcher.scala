@@ -152,6 +152,10 @@ object Launcher extends Loggable {
   /** Name of base package/jar with OSGi framework */
   val OSGiPackage = "org.eclipse.osgi"
 
+  // #SI-6240 Scala reflection isn't thread safe. Call Definitions.init()
+  // https://groups.google.com/forum/#!topic/scala-internals/WNYpkcIbovg
+  scala.reflect.runtime.universe
+
   /**
    * Main application entry
    * There is only one implementation as simple as possible.
