@@ -45,13 +45,13 @@ object ReportAppender extends Appender {
   /** Counter that prevents clean() operation */
   @volatile private var counter2 = 0
   /** Appender filter */
-  @volatile private var filter: Message => Boolean = (record) => true
+  @volatile private var filter: Message ⇒ Boolean = (record) ⇒ true
 
-  protected var f = (records: Array[Message]) => synchronized {
+  protected var f = (records: Array[Message]) ⇒ synchronized {
     // rotate
     for {
-      output <- output
-      file <- file
+      output ← output
+      file ← file
     } {
       counter1 += records.size
       if (counter1 > DI.checkEveryNLines) {
@@ -62,16 +62,16 @@ object ReportAppender extends Appender {
     }
     // write
     output.foreach {
-      output =>
-        records.foreach { r =>
+      output ⇒
+        records.foreach { r ⇒
           if (filter(r)) {
             output.write(r.toString)
-            r.throwable.foreach { t =>
+            r.throwable.foreach { t ⇒
               output.println()
               try {
                 t.printStackTrace(output)
               } catch {
-                case e: Throwable =>
+                case e: Throwable ⇒
                   output.append("\nstack trace \"" + t.getMessage + "\" unaviable")
               }
             }
@@ -83,7 +83,7 @@ object ReportAppender extends Appender {
   }
 
   /** Change report appender singleton filter */
-  def apply(filter: Message => Boolean): ReportAppender.type = {
+  def apply(filter: Message ⇒ Boolean): ReportAppender.type = {
     this.filter = filter
     this
   }
@@ -99,12 +99,12 @@ object ReportAppender extends Appender {
       output = None
       file = None
     } catch {
-      case e: Throwable =>
+      case e: Throwable ⇒
         Logging.commonLogger.error(e.getMessage, e)
     }
   }
   override def flush() = synchronized {
-    try { output.foreach(_.flush) } catch { case e: Throwable => }
+    try { output.foreach(_.flush) } catch { case e: Throwable ⇒ }
   }
 
   private def getLogFileName() =
@@ -128,13 +128,15 @@ object ReportAppender extends Appender {
         None
       }
     }
-    output = file.map(f => {
+    output = file.map(f ⇒ {
       // write header
       // the PrintWriter is swallow the exceptions. It is fine.
       val writer = new PrintWriter(new BufferedWriter(new FileWriter(f, true)))
       writer.write("=== TA-Buddy desktop (if you have a question or suggestion, email ezh@ezh.msk.ru) ===\n")
       writer.write("report path: " + Report.path + "\n")
-      writer.write(Report.info)
+      writer.write(s"os: ${Report.info.os}\narch: ${Report.info.arch}\nplatform: ${Report.info.platform}\n" +
+        Report.info.component.map(c ⇒ s"${c.name}: version: ${c.version}, build: ${Report.dateString(c.build)} (${c.rawBuild})").
+        sorted.mkString("\n") + "\n")
       writer.write("=====================================================================================\n\n")
       // -rw-r--r--
       f.setReadable(true, false)
@@ -147,7 +149,7 @@ object ReportAppender extends Appender {
       Report.clean()
     }
   } catch {
-    case e: Throwable =>
+    case e: Throwable ⇒
       Logging.commonLogger.error(e.getMessage, e)
   }
   /**

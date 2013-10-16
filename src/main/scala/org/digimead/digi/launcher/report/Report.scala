@@ -65,8 +65,6 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
   val allowGenerateStackTrace = injectOptional[Boolean]("Report.TraceFileEnabled") getOrElse true
   /** Copy buffer size. */
   val bufferSize: Int = injectOptional[Int]("Report.BufferSize") getOrElse 8196
-  /** Date representation format. */
-  val df = injectOptional[DateFormat]("Report.DateFormat") getOrElse new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSZ")
   /** General information about application. */
   val info = getInfo()
   /** Number of saved log files. */
@@ -105,7 +103,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
       override def run() = try {
         toClean(path, Seq())._2.foreach(_.delete)
       } catch {
-        case e: Throwable =>
+        case e: Throwable ⇒
           log.error(e.getMessage, e)
       } finally {
         cleanThread = None
@@ -121,14 +119,14 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
     if (reports.isEmpty)
       return
     try {
-      reports.foreach(name => {
+      reports.foreach(name ⇒ {
         val report = new File(dir, name)
         val active = try {
           val name = report.getName
           val pid = name.split("""-""")(2).drop(1).reverse.dropWhile(_ != '.').drop(1).reverse
           this.pid == pid
         } catch {
-          case e: Throwable =>
+          case e: Throwable ⇒
             log.error(s"Unable to find pid for ${report.getName()}: ${e.getMessage()}.", e)
             false
         }
@@ -138,7 +136,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
         }
       })
     } catch {
-      case e: Throwable =>
+      case e: Throwable ⇒
         log.error(e.getMessage, e)
     }
   }
@@ -152,7 +150,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
     if (reports.isEmpty)
       return
     try {
-      reports.foreach(report => {
+      reports.foreach(report ⇒ {
         val reportName = report.getName
         val compressed = new File(path, reportName.substring(0, reportName.length - logFileExtension.length) + "z" + logFileExtension)
         val active = try {
@@ -161,15 +159,15 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
             // "-Pnnnnn.dlog"
             val suffix = reportName.substring(reportName.length - logFileExtensionPrefix.length - logFileExtension.length - 7)
             reports.find(_.getName.endsWith(suffix)) match {
-              case Some(activeName) =>
+              case Some(activeName) ⇒
                 activeName.getName == reportName
-              case None =>
+              case None ⇒
                 false
             }
           } else
             false
         } catch {
-          case e: Throwable =>
+          case e: Throwable ⇒
             log.error(s"Unable to find pid for ${report.getName()}: ${e.getMessage()}.", e)
             false
         }
@@ -195,9 +193,16 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
         }
       })
     } catch {
-      case e: Throwable =>
+      case e: Throwable ⇒
         log.error(e.getMessage, e)
     }
+  }
+  /** Returns file prefix */
+  def filePrefix(): String = {
+    val uid = "U" + this.uid
+    val date = dateFile(new Date())
+    val pid = "P" + this.pid
+    Seq(uid, date, pid).map(_.replaceAll("""[/?*:\.;{}\\-]+""", "_")).mkString("-")
   }
   /** Generate the stack trace report */
   @log
@@ -224,7 +229,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
       log.debug(s"Writing unhandled exception to: ${file}.")
       // Write the stacktrace to disk
       val bos = new BufferedWriter(new FileWriter(file))
-      bos.write("date:%s; process: %s; thread: %s.\n".format(dateString(when), pid.toString, tid.toString))
+      bos.write("date:%s; process: %s; thread: %s.\n".format(Report.dateString(when), pid.toString, tid.toString))
       if (message != null)
         bos.write(message + "\n\n")
       else
@@ -237,7 +242,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
       file.setReadable(true, false)
     } catch {
       // Nothing much we can do about this - the game is over
-      case e: Throwable =>
+      case e: Throwable ⇒
         System.err.println("Fatal error " + e)
         e.printStackTrace()
     }
@@ -268,7 +273,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
       clean()
       compress()
     } catch {
-      case e: Throwable => log.error(e.getMessage, e)
+      case e: Throwable ⇒ log.error(e.getMessage, e)
     }
     Report.active = true
   }
@@ -289,23 +294,24 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
   }
 
   /** Returns general information about application */
-  protected def getInfo(): String = {
+  protected def getInfo(): api.Report.Info = {
     // Get components information if any.
     val versionProperties = getClass.getClassLoader.getResources("version.properties")
-    val components = for (resURL <- versionProperties) yield try {
+    val components = for (resURL ← versionProperties) yield try {
       val properties = new Properties
       properties.load(resURL.openStream())
-      Option(properties.getProperty("name")).map { name =>
+      Option(properties.getProperty("name")).map { name ⇒
         val version = Option(properties.getProperty("version")).getOrElse("0")
-        val build = Option(properties.getProperty("build")) match {
-          case Some(rawBuild) =>
-            (try { dateString(new Date(rawBuild.toLong * 1000)) } catch { case e: Throwable => rawBuild }) + s" (${rawBuild})"
-          case None => "0"
+        Option(properties.getProperty("build")) match {
+          case Some(rawBuild) ⇒
+            val date = try { new Date(rawBuild.toLong * 1000) } catch { case e: Throwable ⇒ new Date(0) }
+            api.Report.Component(name, version, date, rawBuild)
+          case None ⇒
+            api.Report.Component(name, version, new Date(0), "0")
         }
-        s"${name}: version: ${version}, build: ${build}"
       }
     } catch {
-      case e: Throwable => //
+      case e: Throwable ⇒ //
         log.error(s"Unable to load version.properties for ${resURL}.", e)
         None
     }
@@ -315,15 +321,12 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
     val platform = try {
       Option(Class.forName("org.eclipse.swt.SWT").getMethod("getPlatform").invoke(null))
     } catch {
-      case e: Throwable =>
+      case e: Throwable ⇒
         log.error(e.getMessage(), e)
         None
     }
-    // Generate report
-    "os: " + Option(System.getProperty("os.name")).getOrElse("UNKNOWN") + "\n" +
-      "arch: " + Option(System.getProperty("os.arch")).getOrElse("UNKNOWN") + "\n" +
-      platform.map(p => s"platform: $p\n").getOrElse("") +
-      components.flatten.toSeq.sorted.mkString("\n") + "\n"
+    api.Report.Info(components.flatten.toSeq, Option(System.getProperty("os.name")).getOrElse("UNKNOWN"),
+      Option(System.getProperty("os.arch")).getOrElse("UNKNOWN"), platform.map(_.toString()).getOrElse("UNKNOWN"))
   }
   /**
    * Build sequence of files to delete
@@ -331,25 +334,25 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
    */
   private def toClean(dir: File, keep: Seq[String]): (Seq[String], Seq[File]) = try {
     var result: Seq[File] = Seq()
-    val files = Option(dir.listFiles()).getOrElse(Array[File]()).map(f => f.getName.toLowerCase -> f)
+    val files = Option(dir.listFiles()).getOrElse(Array[File]()).map(f ⇒ f.getName.toLowerCase -> f)
     val traceFiles = files.filter(_._1.endsWith(traceFileExtension)).sortBy(_._1).reverse
     traceFiles.drop(keepTrcFiles).foreach {
-      case (name, file) =>
+      case (name, file) ⇒
         log.info(s"Delete outdated stacktrace file ${name}.")
         result = result :+ file
     }
     files.filter(_._1.endsWith(".description")).foreach {
-      case (name, file) =>
+      case (name, file) ⇒
         log.info(s"Delete outdated description file ${name}.")
         result = result :+ file
     }
     files.filter(_._1.endsWith(".png")).foreach {
-      case (name, file) =>
+      case (name, file) ⇒
         log.info(s"Delete outdated png file ${name}.")
         result = result :+ file
     }
     // sequence of name suffixes: Tuple2(uncompressed suffix, compressed suffix)
-    val keepForTraceReport = traceFiles.take(keepTrcFiles).map(t => {
+    val keepForTraceReport = traceFiles.take(keepTrcFiles).map(t ⇒ {
       val name = t._1
       val traceSuffix = name.substring(name.length - name.reverse.takeWhile(_ != '-').length - 1)
       Array(traceSuffix.takeWhile(_ != '.') + "." + logFileExtensionPrefix + logFileExtension,
@@ -359,10 +362,10 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
     // sequence of name suffixes: Tuple2(uncompressed suffix, compressed suffix)
     // keep all log files with PID == last run
     val keepLog = logFiles.take(keepLogFiles).map(_._1 match {
-      case compressed if compressed.endsWith("z" + logFileExtension) =>
+      case compressed if compressed.endsWith("z" + logFileExtension) ⇒
         // for example "-P0000.dzlog"
         Array(compressed.substring(compressed.length - compressed.reverse.takeWhile(_ != '-').length - 1))
-      case plain =>
+      case plain ⇒
         // for example "-P0000.dlog"
         val logSuffix = plain.substring(plain.length - plain.reverse.takeWhile(_ != '-').length - 1)
         Array(logSuffix.takeWhile(_ != '.') + "." + logFileExtensionPrefix + logFileExtension,
@@ -371,7 +374,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
     log.debug(s"Keep log files with suffixes: ${(keepLog ++ keepForTraceReport).mkString(", ")}.")
     val keepSuffixes = (keepLog ++ keepForTraceReport ++ keep).distinct
     logFiles.drop(keepLogFiles).foreach {
-      case (name, file) =>
+      case (name, file) ⇒
         if (!keepSuffixes.exists(name.endsWith)) {
           log.info(s"Delete outdated log file ${name}.")
           result = result :+ file
@@ -379,17 +382,8 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
     }
     (keepSuffixes, result)
   }
-  /** Returns file prefix */
-  def filePrefix(): String = {
-    val uid = "U" + this.uid
-    val date = dateFile(new Date())
-    val pid = "P" + this.pid
-    Seq(uid, date, pid).map(_.replaceAll("""[/?*:\.;{}\\-]+""", "_")).mkString("-")
-  }
   /** Returns file name based on the specific date. */
-  protected def dateFile(date: Date) = dateString(date).replaceAll("""[:\.]""", "_").replaceAll("""\+""", "x")
-  /** Returns string representation of the specific date. */
-  protected def dateString(date: Date) = df.format(date)
+  protected def dateFile(date: Date) = Report.dateString(date).replaceAll("""[:\.]""", "_").replaceAll("""\+""", "x")
   /** Copy streams. */
   protected def copy(in: InputStream, out: OutputStream, close: Boolean) = try {
     val buffer = new Array[Byte](bufferSize)
@@ -408,7 +402,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
     val lock = new ReentrantLock
     def notify(pub: Event.Pub, event: Event) = if (!lock.isLocked()) {
       event match {
-        case event: Event.Outgoing =>
+        case event: Event.Outgoing ⇒
           if (event.record.throwable.nonEmpty && event.record.level == Level.Error) {
             future {
               if (lock.tryLock()) try {
@@ -419,11 +413,11 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
                 lock.unlock()
               }
             } onFailure {
-              case e: Exception => log.error(e.getMessage(), e)
-              case e => log.error(e.toString())
+              case e: Exception ⇒ log.error(e.getMessage(), e)
+              case e ⇒ log.error(e.toString())
             }
           }
-        case _ =>
+        case _ ⇒
       }
     }
   }
@@ -433,12 +427,17 @@ object Report extends Loggable {
   implicit def report2implementation(r: Report.type): api.Report = r.inner
   @volatile private var active: Boolean = false
 
+  /** Returns string representation of the specific date. */
+  def dateString(date: Date) = DI.df.format(date)
+  /** Report implementation. */
   def inner() = DI.implementation
 
   /**
    * Dependency injection routines
    */
   private object DI extends DependencyInjection.PersistentInjectable {
+    /** Date representation format. */
+    val df = injectOptional[DateFormat]("Report.DateFormat") getOrElse new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSZ")
     /** Report implementation */
     val implementation = injectOptional[api.Report] getOrElse new Report
   }
