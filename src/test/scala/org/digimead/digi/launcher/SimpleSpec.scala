@@ -23,10 +23,10 @@ package org.digimead.digi.lib
 import org.digimead.digi.lib.log.api.Loggable
 import org.digimead.lib.test.LoggingHelper
 import org.scalatest.WordSpec
-import org.scalatest.matchers.ShouldMatchers
+import org.scalatest.Matchers
 import org.scalatest.mock.MockitoSugar
 
-class SimpleSpec extends WordSpec with LoggingHelper with ShouldMatchers with MockitoSugar with Loggable {
+class SimpleSpec extends WordSpec with LoggingHelper with Matchers with MockitoSugar with Loggable {
   after {
     adjustLoggingAfter
   }
@@ -41,5 +41,5 @@ class SimpleSpec extends WordSpec with LoggingHelper with ShouldMatchers with Mo
     }
   }
 
-  override def beforeAll(configMap: Map[String, Any]) { adjustLoggingBeforeAll(configMap) }
+  override def beforeAll(configMap: org.scalatest.ConfigMap) { adjustLoggingBeforeAll(configMap) }
 }

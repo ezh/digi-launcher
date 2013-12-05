@@ -1,0 +1,14 @@
+---
+out: index.html
+---
+
+digi-launcher
+=============
+
+OSGi framework launcher for Equinox environment.
+
+<hr/>
+
+> [Latest stable version - UNKNOWN]($stable$)
+
+> [Latest development version - UNKNOWN]($development$)
