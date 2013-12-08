@@ -101,7 +101,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
    */
   val defaultInitialStartLevel = injectOptional[Int](EclipseStarter.PROP_INITIAL_STARTLEVEL) getOrElse 6
   /** The DI keys validator Fn(keyClass, loaderClass) */
-  val dependencyValidator = injectOptional[(Manifest[_], Option[String], Class[_]) => Boolean]("Launcher.DI.Validator")
+  val dependencyValidator = injectOptional[(Manifest[_], Option[String], Class[_]) ⇒ Boolean]("Launcher.DI.Validator")
   /**
    * The development mode.
    * Some(Seq(a,b,c)) - reload only a,b and c bundles
@@ -268,21 +268,21 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
             System.out.println("Application is starting up.")
             log.info("Application is starting up.")
             appDigiCall(context, wait) match {
-              case (exitCode, -1) =>
+              case (exitCode, -1) ⇒
                 log.warn("Application bundle ID is not specified.")
                 code = exitCode
-              case (exitCode, bundleId) =>
+              case (exitCode, bundleId) ⇒
                 code = exitCode
                 modifiedBundles = Seq(bundleId)
             }
             log.info("Application is stopped.")
             System.out.println("Application is stopped.")
           } catch {
-            case e: ClassNotFoundException =>
+            case e: ClassNotFoundException ⇒
               log.warn("Digi application halted(recompilation?): " + e.getMessage, e)
               Thread.sleep(5000)
               forceReload = true
-            case e: Throwable =>
+            case e: Throwable ⇒
               log.error("Digi application halted: " + e.getMessage, e)
               Thread.sleep(1000)
           }
@@ -292,7 +292,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       if (ApplicationLauncher.development.get()) {
         // We are in development mode
         dev.getOrElse(Seq()) match {
-          case Nil =>
+          case Nil ⇒
             // We search for modified files in bundle directories
             log.warn(s"Development mode. Refresh only modified bundles.")
             if (processDevelopmentMonitor(modifiedBundles, monitor, framework, forceReload)) {
@@ -300,11 +300,11 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
               // Apply new DI, initialize DI for our OSGi infrastructure.
               applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
             }
-          case dev =>
+          case dev ⇒
             // We have explicit list of bundles
-            val toReload = framework.getSystemBundleContext().getBundles().filter(b => dev.exists(_ == b.getSymbolicName()))
+            val toReload = framework.getSystemBundleContext().getBundles().filter(b ⇒ dev.exists(_ == b.getSymbolicName()))
             if (toReload.size != dev.size) {
-              val lost = dev.filterNot(b => toReload.exists(_.getSymbolicName() == b))
+              val lost = dev.filterNot(b ⇒ toReload.exists(_.getSymbolicName() == b))
               System.err.println("Not all development bundles found. Lost: " + lost.mkString(","))
               log.error("Not all development bundles found. Lost: " + lost.mkString(","))
             }
@@ -312,7 +312,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
             val modified = toReload.map(_.getBundleId())
             log.warn(s"Development mode. Refresh bundles with IDs (${modified.mkString(", ")})")
             frameworkLauncher.refreshBundles(modified, maximumDuration, framework) {
-              report.foreach { report => report.rotate }
+              report.foreach { report ⇒ report.rotate }
             }
             // Apply new DI, initialize DI for our OSGi infrastructure.
             applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
@@ -322,7 +322,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         // modifiedBundles MUST contain at least application bundle ID (look at appDigiCall)
         log.warn(s"Production mode. Refresh application bundle with IDs ${modifiedBundles.mkString(", ")}")
         frameworkLauncher.refreshBundles(modifiedBundles, maximumDuration, framework) {
-          report.foreach { report => report.rotate }
+          report.foreach { report ⇒ report.rotate }
         }
         // Apply new DI, initialize DI for our OSGi infrastructure.
         applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
@@ -340,7 +340,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     val serviceTracker = new ServiceTracker[AnyRef, AnyRef](context, digiMainService, null)
     serviceTracker.open()
     Option(serviceTracker.waitForService(timeout)) match {
-      case Some(main: Callable[_]) =>
+      case Some(main: Callable[_]) ⇒
         // block here
         log.debug("Start Digi application: " + main)
         reportStart(context)
@@ -349,15 +349,15 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
           resultAppBundleId = FrameworkUtil.getBundle(main.getClass()).getBundleId()
           resultCode = main.call().asInstanceOf[Int]
         } catch {
-          case e: Throwable =>
+          case e: Throwable ⇒
             log.error("Application terminated: " + e.getMessage, e)
         }
         ApplicationLauncher.digiMainService = None
         reportStop(context)
         log.debug(s"Digi application $main is completed.")
-      case Some(_) =>
+      case Some(_) ⇒
         log.error(s"Unable to process incorrect service '$digiMainService'")
-      case None =>
+      case None ⇒
         log.error(s"Unable to get service for '$digiMainService'")
     }
     serviceTracker.close()
@@ -413,10 +413,10 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       }
       appLauncherRegistration.unregister()
     } catch {
-      case e: Exception =>
+      case e: Exception ⇒
         log.error("Unable to start application.", e)
         // context can be null if OSGi failed to launch (bug 151413)
-        try { frameworkLauncher.logUnresolvedBundles(framework) } catch { case e: Throwable => }
+        try { frameworkLauncher.logUnresolvedBundles(framework) } catch { case e: Throwable ⇒ }
         throw e
     }
   }
@@ -425,7 +425,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   protected def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_] = {
     val framework = ApplicationLauncher.applicationFramework getOrElse
       { throw new IllegalStateException("OSGi framework is not ready.") }
-    val bundle = framework.getSystemBundleContext().getBundles.find(bundle =>
+    val bundle = framework.getSystemBundleContext().getBundles.find(bundle ⇒
       bundle.getSymbolicName() == bundleSymbolicName && (bundle.getState() == Bundle.RESOLVED || bundle.getState() == Bundle.ACTIVE)) getOrElse
       { throw new IllegalStateException(s"OSGi bundle with symbolic name '$bundleSymbolicName' is not found.") }
     val classLoader = bundle.adapt(classOf[BundleWiring]).getClassLoader()
@@ -434,25 +434,25 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   /** Collect all bundles that are directories, save lastModified for each file in bundle. */
   protected def initializeDevelopmentMonitor(framework: osgi.Framework): immutable.HashMap[Long, immutable.HashMap[File, Long]] = {
     dev match {
-      case Some(seq) if seq.nonEmpty =>
+      case Some(seq) if seq.nonEmpty ⇒
         // We are not interested in monitor: We have an explicit bundle list.
         log.debug("Development mode. Skip monitor initialization.")
         return immutable.HashMap()
-      case None if !ApplicationLauncher.development.get =>
+      case None if !ApplicationLauncher.development.get ⇒
         // We are not interested in monitor: development mode disabled.
         log.debug("Production mode. Skip monitor initialization.")
         return immutable.HashMap()
-      case _ =>
+      case _ ⇒
         log.debug("Development mode. Initialize monitor.")
     }
     val context = framework.getSystemBundleContext()
-    val entries = context.getBundles().map { bundle =>
+    val entries = context.getBundles().map { bundle ⇒
       try {
         val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
         if (location.isDirectory()) {
           log.debug(s"Development mode. Add ${bundle.getSymbolicName()} to monitor.")
           Some(bundle.getBundleId() -> immutable.HashMap(
-            recursiveListFiles(location).map(file => (file, file.lastModified())): _*))
+            recursiveListFiles(location).map(file ⇒ (file, file.lastModified())): _*))
         } else
           None
       }
@@ -463,17 +463,17 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   @log
   protected def initializeDIProperties(): immutable.Map[String, String] = {
     var properties = mutable.HashMap[String, String]()
-    console.foreach(arg => properties(EclipseStarter.PROP_CONSOLE) = arg.toString)
-    configArea.foreach(arg => properties(LocationManager.PROP_CONFIG_AREA) = arg.toString)
-    userArea.foreach(arg => properties(LocationManager.PROP_USER_AREA) = arg.toString)
-    launcher.foreach(arg => properties(osgi.Framework.PROP_LAUNCHER) = arg.toString)
-    dev.foreach(arg => properties(EclipseStarter.PROP_DEV) = arg.toString)
-    debugFile.foreach(arg => properties(EclipseStarter.PROP_DEBUG) = arg.toString)
-    ws.foreach(arg => properties(EclipseStarter.PROP_WS) = arg.toString)
-    os.foreach(arg => properties(EclipseStarter.PROP_OS) = arg.toString)
-    arch.foreach(arg => properties(EclipseStarter.PROP_ARCH) = arg.toString)
-    nl.foreach(arg => properties(EclipseStarter.PROP_NL) = arg.toString)
-    nlExtensions.foreach(arg => properties(osgi.Framework.PROP_NL_EXTENSIONS) = arg.toString)
+    console.foreach(arg ⇒ properties(EclipseStarter.PROP_CONSOLE) = arg.toString)
+    configArea.foreach(arg ⇒ properties(LocationManager.PROP_CONFIG_AREA) = arg.toString)
+    userArea.foreach(arg ⇒ properties(LocationManager.PROP_USER_AREA) = arg.toString)
+    launcher.foreach(arg ⇒ properties(osgi.Framework.PROP_LAUNCHER) = arg.toString)
+    dev.foreach(arg ⇒ properties(EclipseStarter.PROP_DEV) = arg.toString)
+    debugFile.foreach(arg ⇒ properties(EclipseStarter.PROP_DEBUG) = arg.toString)
+    ws.foreach(arg ⇒ properties(EclipseStarter.PROP_WS) = arg.toString)
+    os.foreach(arg ⇒ properties(EclipseStarter.PROP_OS) = arg.toString)
+    arch.foreach(arg ⇒ properties(EclipseStarter.PROP_ARCH) = arg.toString)
+    nl.foreach(arg ⇒ properties(EclipseStarter.PROP_NL) = arg.toString)
+    nlExtensions.foreach(arg ⇒ properties(osgi.Framework.PROP_NL_EXTENSIONS) = arg.toString)
     properties(LocationManager.PROP_INSTANCE_AREA) = instanceArea.toString
     properties(EclipseStarter.PROP_BUNDLES_STARTLEVEL) = defaultBundlesStartLevel.toString
     properties(EclipseStarter.PROP_EXTENSIONS) = extensionBundles.mkString(",")
@@ -486,18 +486,18 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     log.info("Preload OSGi classes with Equinox hacks.")
     val skipPreload = Seq("org.osgi.service.log.package-info")
     Option(classOf[LocationManager].getProtectionDomain().getCodeSource()) match {
-      case Some(equinoxSrc) =>
+      case Some(equinoxSrc) ⇒
         val jar = equinoxSrc.getLocation();
         val zip = new ZipInputStream(jar.openStream())
         val iter = Iterator.continually { zip.getNextEntry() }
         iter.takeWhile(_ != null).foreach {
-          case entry if entry.getName().endsWith(".class") =>
+          case entry if entry.getName().endsWith(".class") ⇒
             val className = entry.getName().substring(0, entry.getName().length() - 6).replaceAll("""/""", ".")
             if (!skipPreload.contains(className))
               Class.forName(className)
-          case entry =>
+          case entry ⇒
         }
-      case None =>
+      case None ⇒
         log.fatal("Unable to find Equinox framework contents.")
         return
     }
@@ -525,7 +525,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       val writer = new PrintWriter(buffer)
       val properties = FrameworkProperties.getProperties()
       writer.println("\n-- listing OSGi startup properties --")
-      properties.stringPropertyNames().toList.sorted.foreach { name =>
+      properties.stringPropertyNames().toList.sorted.foreach { name ⇒
         writer.println("%s=%s".format(name, properties.getProperty(name)))
       }
       writer.close()
@@ -535,12 +535,12 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   /** Refresh bundle if there is at least one modified file. */
   protected def processDevelopmentMonitor(modifiedBundles: Seq[Long], monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]], framework: osgi.Framework, forceReload: Boolean): Boolean = {
     val context = framework.getSystemBundleContext()
-    val modified = monitor.keys.flatMap { id =>
+    val modified = monitor.keys.flatMap { id ⇒
       Option(framework.getBundle(id)) match {
-        case Some(bundle) =>
+        case Some(bundle) ⇒
           val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
           if (location.isDirectory()) {
-            val newState = immutable.HashMap(recursiveListFiles(location).map(file => (file, file.lastModified())): _*)
+            val newState = immutable.HashMap(recursiveListFiles(location).map(file ⇒ (file, file.lastModified())): _*)
             val oldState = monitor(id)
             if (newState.size != oldState.size)
               Some(id)
@@ -549,7 +549,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
                 log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is forced for reload.")
                 Some(id)
               } else {
-                if (newState.forall { case (file, time) => oldState(file) == time }) {
+                if (newState.forall { case (file, time) ⇒ oldState(file) == time }) {
                   log.debug(s"Development mode. Bundle ${bundle.getSymbolicName()} with ID $id is unmodified.")
                   None
                 } else {
@@ -562,7 +562,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
             log.warn(s"Development mode. Unable to find bundle $id directory: " + location)
             Some(id)
           }
-        case None =>
+        case None ⇒
           log.warn(s"Development mode. Bundle $id is absent.")
           Some(id)
       }
@@ -570,27 +570,27 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     if (modified.nonEmpty || modifiedBundles.nonEmpty) {
       log.warn(s"Development mode. Refresh bundles with IDs (${modified.mkString(", ")})")
       frameworkLauncher.refreshBundles((modifiedBundles ++ modified).distinct, maximumDuration, framework) {
-        report.foreach { report => report.rotate }
+        report.foreach { report ⇒ report.rotate }
       }
     } else
       false
   }
   /** Start report service. */
   @log
-  def reportStart(context: BundleContext) = report.foreach { report =>
+  def reportStart(context: BundleContext) = report.foreach { report ⇒
     report.asInstanceOf[{ def start() }].start()
     // Start "report" service
     reportRegistration = Option(context.registerService(classOf[Report], report, null))
     reportRegistration match {
-      case Some(service) => log.debug("Register launcher report service as: " + service)
-      case None => log.error("Unable to register launcher report service.")
+      case Some(service) ⇒ log.debug("Register launcher report service as: " + service)
+      case None ⇒ log.error("Unable to register launcher report service.")
     }
   }
   /** Stop report service. */
   @log
-  def reportStop(context: BundleContext) = report.foreach { report =>
+  def reportStop(context: BundleContext) = report.foreach { report ⇒
     // Stop "main" service
-    reportRegistration.foreach { serviceRegistration =>
+    reportRegistration.foreach { serviceRegistration ⇒
       log.debug("Unregister launcher report service.")
       serviceRegistration.unregister()
     }
@@ -599,7 +599,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   }
   /** Run OSGi framework and application. */
   @log
-  protected def run() {
+  protected def run() = try {
     log.info("Start application.")
     if (!ApplicationLauncher.initialized.get)
       throw new IllegalStateException("Platform is not initialized")
@@ -621,7 +621,9 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     // 0 iteration - run if everything OK or restart or exit
     // 1 iteration - fix inconsistency of 0 iteration if forcedRestart
     // 2 iteration - confirm inconsistency of 1 iteration if forcedRestart
-    for (retry <- 0 until 3 if running.get) {
+    for (retry ← 0 until 3 if running.get) {
+      System.out.print("Loading application bundles and settings... ")
+      System.out.flush()
       log.info(s"Enter application startup sequence main loop. Retry N: ${retry}.")
       val (framework, shutdownListeners) = frameworkLauncher.launch(frameworkConfiguration, Seq(shutdownHandler))
       // If everything OK, we would have here:
@@ -632,38 +634,51 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       //     Run sequence is restarted if SupportLoader.refreshPackages detect installed/uninstalled bundles and there is isForcedRestart
       //   5. new URL protocol handler: reference. IMPORTANT
       frameworkLauncher.check(framework)
-      val restart = frameworkLauncher.loadBundles(defaultBundlesStartLevel, framework) match {
-        case ((true, lazyActivationBundles, toStartBundles)) =>
-          // System bundle is STARTING, all other bundles are RESOLVED and framework is consistent
-          // Initialize DI for our OSGi infrastructure.
-          applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
-          // Start bundles after DI initialization.
-          frameworkLauncher.startBundles(defaultInitialStartLevel, lazyActivationBundles, toStartBundles, framework)
-          false
-        case ((false, lazyActivationBundles, toStartBundles)) =>
-          if (retry < 2) {
-            // cannot continue; loadBundles caused refreshPackages to shutdown the framework
-            log.info("Restart initiated: loadBundles caused refreshPackages to shutdown the framework.")
-            if (!frameworkLauncher.waitForConsitentState(maximumDuration, framework))
-              log.errorWhere(s"Unable to stay in inconsistent state more than ${maximumDuration / 1000}s. Shutting down anyway.")
-            // we are restarting, not shutting down, remove listeners before restart
-            frameworkLauncher.finish(shutdownListeners, None, framework)
-            framework.close()
-            framework.waitForStop(maximumDuration)
-            log.info("OSGi framework is stopped. Restart.")
-            true
-          } else {
-            log.info("Unable to get consistent OSGi environment. Start application with available one.")
-            frameworkLauncher.logUnresolvedBundles(framework)
-            // System bundle is STARTING, all other bundles are RESOLVED or INSTALLED
+      val restart = try {
+        frameworkLauncher.loadBundles(defaultBundlesStartLevel, framework) match {
+          case ((true, lazyActivationBundles, toStartBundles)) ⇒
+            // System bundle is STARTING, all other bundles are RESOLVED and framework is consistent
             // Initialize DI for our OSGi infrastructure.
             applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
-            // Start bundles after DI initialization
+            // Start bundles after DI initialization.
             frameworkLauncher.startBundles(defaultInitialStartLevel, lazyActivationBundles, toStartBundles, framework)
             false
-          }
+          case ((false, lazyActivationBundles, toStartBundles)) ⇒
+            if (retry < 2) {
+              // cannot continue; loadBundles caused refreshPackages to shutdown the framework
+              log.info("Restart initiated: loadBundles caused refreshPackages to shutdown the framework.")
+              if (!frameworkLauncher.waitForConsitentState(maximumDuration, framework))
+                log.errorWhere(s"Unable to stay in inconsistent state more than ${maximumDuration / 1000}s. Shutting down anyway.")
+              // we are restarting, not shutting down, remove listeners before restart
+              frameworkLauncher.finish(shutdownListeners, None, framework)
+              framework.close()
+              framework.waitForStop(maximumDuration)
+              log.info("OSGi framework is stopped. Restart.")
+              true
+            } else {
+              log.info("Unable to get consistent OSGi environment. Start application with available one.")
+              frameworkLauncher.logUnresolvedBundles(framework)
+              // System bundle is STARTING, all other bundles are RESOLVED or INSTALLED
+              // Initialize DI for our OSGi infrastructure.
+              applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
+              // Start bundles after DI initialization
+              frameworkLauncher.startBundles(defaultInitialStartLevel, lazyActivationBundles, toStartBundles, framework)
+              false
+            }
+        }
+      } catch {
+        case error: Throwable ⇒
+          log.error("Unable to launch framework. Reason: " + error.getMessage(), error)
+          if (!frameworkLauncher.waitForConsitentState(maximumDuration, framework))
+            log.errorWhere(s"Unable to stay in inconsistent state more than ${maximumDuration / 1000}s. Shutting down anyway.")
+          // we are restarting, not shutting down, remove listeners before restart
+          frameworkLauncher.finish(shutdownListeners, None, framework)
+          framework.close()
+          framework.waitForStop(maximumDuration)
+          true
       }
       if (!restart) {
+        System.out.println("Successfully.")
         val commandProvider = new osgi.Commands(framework.getSystemBundleContext())
         commandProvider.start()
         // start console
@@ -671,10 +686,10 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
           Some(ConsoleManager.startConsole(framework))
         else
           None
-        consoleMgr.foreach { consoleMgr =>
+        consoleMgr.foreach { consoleMgr ⇒
           // In the case where the built-in console is disabled we should try to start the console bundle.
           try { consoleMgr.checkForConsoleBundle() } catch {
-            case e: BundleException => log.error(e.getMessage(), e)
+            case e: BundleException ⇒ log.error(e.getMessage(), e)
           }
         }
         //
@@ -686,7 +701,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         if (!frameworkLauncher.waitForConsitentState(maximumDuration, framework))
           log.errorWhere(s"Unable to stay in inconsistent state more than ${maximumDuration / 1000}s. Running anyway.")
         try { appDigi(framework) } catch {
-          case e: Throwable => log.error(e.getMessage, e)
+          case e: Throwable ⇒ log.error(e.getMessage, e)
         }
         ApplicationLauncher.applicationFramework = None
         //
@@ -706,9 +721,14 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         if (shutdownFrameworkOnExit)
           frameworkLauncher.finish(shutdownListeners, consoleMgr, framework)
         log.info("Stop application")
+      } else {
+        if (retry < 2)
+          System.out.println("Consistency isn't reached.")
+        else
+          System.out.println("Fail.")
       }
     }
-    userShutdownHook.foreach(hook => new Thread(hook).start())
+    userShutdownHook.foreach(hook ⇒ new Thread(hook).start())
     System.out.println("Framework is stopped.")
   }
 
@@ -775,15 +795,15 @@ object ApplicationLauncher extends Loggable {
       val serviceTracker = new ServiceTracker[AnyRef, AnyRef](context, digiMainService.get, null)
       serviceTracker.open()
       Option(serviceTracker.getService()) match {
-        case Some(main: Runnable) => try {
+        case Some(main: Runnable) ⇒ try {
           main.asInstanceOf[{ def stop() }].stop()
         } catch {
-          case e: Throwable =>
+          case e: Throwable ⇒
             log.error(s"Unable to process incorrect service '${digiMainService.get}': " + e.getMessage(), e)
         }
-        case Some(_) =>
+        case Some(_) ⇒
           log.error(s"Unable to process incorrect service '${digiMainService.get}'")
-        case None =>
+        case None ⇒
           log.error(s"Unable to get service for '${digiMainService.get}'")
       }
       serviceTracker.close()
@@ -814,7 +834,7 @@ object ApplicationLauncher extends Loggable {
 
     /** Inject stream into OSGi framework. */
     def inject() {
-      try { org.eclipse.osgi.framework.debug.Debug.out.flush() } catch { case e: Throwable => }
+      try { org.eclipse.osgi.framework.debug.Debug.out.flush() } catch { case e: Throwable ⇒ }
       debugOutputStream = new PipedOutputStream()
       debugInputStream = new PipedInputStream(debugOutputStream)
       debugPrintStream = new PrintStream(debugOutputStream)
@@ -837,14 +857,14 @@ object ApplicationLauncher extends Loggable {
           log.debug("<FWK> " + line)
       } while (line != null)
     } catch {
-      case e: IOException =>
-        if (ApplicationLauncher.applicationFramework.forall(fw => try {
+      case e: IOException ⇒
+        if (ApplicationLauncher.applicationFramework.forall(fw ⇒ try {
           val context = fw.getSystemBundleContext()
           context.checkValid()
           val state = context.getBundle().getState()
           Seq(Bundle.STARTING, Bundle.ACTIVE).exists(_ == state)
         } catch {
-          case e: IllegalStateException => false
+          case e: IllegalStateException ⇒ false
         })) {
           log.debug("<FWK> WTF? Where is specification? Shity framework closes stream, reinject it.")
           inject()

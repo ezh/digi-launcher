@@ -106,9 +106,9 @@ class Launcher(implicit val bindingModule: BindingModule)
     val loader = classOf[ApplicationLauncher].getClassLoader()
     val classPath = classOf[ApplicationLauncher].getName.replaceAll("""\.""", "/") + ".class"
     classOf[ApplicationLauncher].getClassLoader.getResource(classPath) match {
-      case url if url.getProtocol() == "jar" =>
+      case url if url.getProtocol() == "jar" ⇒
         new URL(url.getFile().takeWhile(_ != '!'))
-      case url =>
+      case url ⇒
         val path = url.toURI().toString()
         new URI(path.substring(0, path.length() - classPath.length())).toURL
     }
@@ -117,17 +117,17 @@ class Launcher(implicit val bindingModule: BindingModule)
   protected def getPackageURL(packageName: String): Option[URL] = {
     val prefix = packageName + "-"
     getClass.getClassLoader() match {
-      case loader: URLClassLoader =>
+      case loader: URLClassLoader ⇒
         val urls = loader.getURLs()
-        urls.find { url =>
+        urls.find { url ⇒
           url.getPath().split("/").lastOption match {
-            case Some(name) =>
+            case Some(name) ⇒
               name.startsWith(prefix)
-            case None =>
+            case None ⇒
               false
           }
         }
-      case loader =>
+      case loader ⇒
         throw new IllegalStateException(s"Unable get location of ${Launcher.OSGiPackage} from unknown class loader " + loader.getClass())
     }
   }
@@ -164,8 +164,9 @@ object Launcher extends Loggable {
    * @param launcherDI Consolidated dependency injection information for launcher.
    * @param applicationDI Consolidated dependency injection information for OSGi bundles.
    */
-  def main[T](wait: Boolean, launcherDI: => BindingModule,
-    bootstrapRegExp: Seq[String], applicationDIScript: Option[File] = None)(shutdownHook: => T) = synchronized {
+  def main[T](wait: Boolean, launcherDI: ⇒ BindingModule,
+    bootstrapRegExp: Seq[String], applicationDIScript: Option[File] = None)(shutdownHook: ⇒ T) = synchronized {
+    System.out.println("Launch application.")
     // Initialize DI, that may contains code with implicit OSGi initialization.
     // But this is not significant because we will have clean context from our framework loader
     // 1st DI - WINNER
@@ -182,7 +183,7 @@ object Launcher extends Loggable {
     //   """^.*\.api\..*"""
     bootstrapRegExp.foreach(bootstrap.rootClassLoader.addBootDelegationExpression)
     // We always propagate protocol handlers
-    Option(System.getProperty("java.protocol.handler.pkgs")).foreach(_.split("""|""").foreach { pkg =>
+    Option(System.getProperty("java.protocol.handler.pkgs")).foreach(_.split("""|""").foreach { pkg ⇒
       val pkgRegEx = "^" + pkg.trim.replaceAll("""\.""", """\.""")
       log.debug(s"Pass protocol handler '${pkg}' -> '${pkgRegEx}'")
       bootstrap.rootClassLoader.addBootDelegationExpression(pkgRegEx)
@@ -216,9 +217,9 @@ object Launcher extends Loggable {
       { throw new IllegalStateException("Launcher is not initialized.") }
     val clazz = launcher.getBundleClass(bundleSymbolicName, singletonClassName)
     val declaredFields = clazz.getDeclaredFields().toList
-    declaredFields.find(field => field.getName() == "MODULE$") match {
-      case Some(modField) => modField.get(null)
-      case None => throw new IllegalStateException(singletonClassName + " MODULE$ field not found.\n Singleton '" + clazz.getName + "' fields: " + declaredFields.mkString(","))
+    declaredFields.find(field ⇒ field.getName() == "MODULE$") match {
+      case Some(modField) ⇒ modField.get(null)
+      case None ⇒ throw new IllegalStateException(singletonClassName + " MODULE$ field not found.\n Singleton '" + clazz.getName + "' fields: " + declaredFields.mkString(","))
     }
   }
 
