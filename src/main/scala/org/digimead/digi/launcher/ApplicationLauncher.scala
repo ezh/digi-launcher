@@ -265,8 +265,6 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       } else {
         if (ApplicationLauncher.digiApp.get) {
           try {
-            System.out.println("Application is starting up.")
-            log.info("Application is starting up.")
             appDigiCall(context, wait) match {
               case (exitCode, -1) ⇒
                 log.warn("Application bundle ID is not specified.")
@@ -276,7 +274,6 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
                 modifiedBundles = Seq(bundleId)
             }
             log.info("Application is stopped.")
-            System.out.println("Application is stopped.")
           } catch {
             case e: ClassNotFoundException ⇒
               log.warn("Digi application halted(recompilation?): " + e.getMessage, e)
@@ -341,8 +338,9 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     serviceTracker.open()
     Option(serviceTracker.waitForService(timeout)) match {
       case Some(main: Callable[_]) ⇒
+        System.out.println("Framework is ready. Loading application.")
+        log.info("Framework is ready. Loading application.")
         // block here
-        log.debug("Start Digi application: " + main)
         reportStart(context)
         ApplicationLauncher.digiMainService = Some(digiMainService)
         try {
@@ -354,7 +352,6 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         }
         ApplicationLauncher.digiMainService = None
         reportStop(context)
-        log.debug(s"Digi application $main is completed.")
       case Some(_) ⇒
         log.error(s"Unable to process incorrect service '$digiMainService'")
       case None ⇒
@@ -639,10 +636,15 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
           case ((true, lazyActivationBundles, toStartBundles)) ⇒
             // System bundle is STARTING, all other bundles are RESOLVED and framework is consistent
             // Initialize DI for our OSGi infrastructure.
-            applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
-            // Start bundles after DI initialization.
-            frameworkLauncher.startBundles(defaultInitialStartLevel, lazyActivationBundles, toStartBundles, framework)
-            false
+            var injected = applicationDIScript.map(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
+            if (injected != Some(false)) {
+              // Start bundles after DI initialization.
+              frameworkLauncher.startBundles(defaultInitialStartLevel, lazyActivationBundles, toStartBundles, framework)
+              false
+            } else {
+              running.set(false) // fatal error
+              true // restarting, but actually exit
+            }
           case ((false, lazyActivationBundles, toStartBundles)) ⇒
             if (retry < 2) {
               // cannot continue; loadBundles caused refreshPackages to shutdown the framework
@@ -720,12 +722,14 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         }
         if (shutdownFrameworkOnExit)
           frameworkLauncher.finish(shutdownListeners, consoleMgr, framework)
-        log.info("Stop application")
+        log.info("Application is stopped.")
       } else {
-        if (retry < 2)
-          System.out.println("Consistency isn't reached.")
-        else
-          System.out.println("Fail.")
+        if (running.get) {
+          if (retry < 2)
+            System.out.println("Consistency isn't reached.")
+          else
+            System.out.println("Fail.")
+        }
       }
     }
     userShutdownHook.foreach(hook ⇒ new Thread(hook).start())

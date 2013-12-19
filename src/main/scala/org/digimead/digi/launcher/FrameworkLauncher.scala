@@ -88,15 +88,15 @@ class FrameworkLauncher extends BundleListener with Loggable {
   @log
   def check(framework: osgi.Framework): Boolean = {
     val bundles = framework.getSystemBundleContext().getBundles()
-    val broken = bundles.filterNot(b => b.getState() == Bundle.RESOLVED || b.getState() == Bundle.STARTING || b.getState() == Bundle.ACTIVE).map { broken =>
+    val broken = bundles.filterNot(b ⇒ b.getState() == Bundle.RESOLVED || b.getState() == Bundle.STARTING || b.getState() == Bundle.ACTIVE).map { broken ⇒
       val state = broken.getState() match {
-        case Bundle.UNINSTALLED => "UNINSTALLED"
-        case Bundle.INSTALLED => "INSTALLED"
-        case Bundle.RESOLVED => "RESOLVED"
-        case Bundle.STARTING => "STARTING"
-        case Bundle.STOPPING => "STOPPING"
-        case Bundle.ACTIVE => "ACTIVE"
-        case unknown => "UNKNOWN " + unknown
+        case Bundle.UNINSTALLED ⇒ "UNINSTALLED"
+        case Bundle.INSTALLED ⇒ "INSTALLED"
+        case Bundle.RESOLVED ⇒ "RESOLVED"
+        case Bundle.STARTING ⇒ "STARTING"
+        case Bundle.STOPPING ⇒ "STOPPING"
+        case Bundle.ACTIVE ⇒ "ACTIVE"
+        case unknown ⇒ "UNKNOWN " + unknown
       }
       s"\tUnexpected state $state for bundle $broken"
     }
@@ -110,32 +110,44 @@ class FrameworkLauncher extends BundleListener with Loggable {
   @log
   def finish(shutdownListeners: Seq[BundleListener], console: Option[ConsoleManager], framework: osgi.Framework) {
     log.info("Finish processes of OSGi framework.")
-    (shutdownListeners :+ this).foreach(l => try { framework.getSystemBundleContext().removeBundleListener(l) } catch { case e: Throwable => })
-    console.foreach(console => try { console.stopConsole() } catch {
-      case e: IllegalStateException if e.getMessage() == "BundleContext is no longer valid" => // skip, framework is already stopped
-      case e: Throwable => log.warn("Unable to stop OSGi console: " + e, e)
+    (shutdownListeners :+ this).foreach(l ⇒ try { framework.getSystemBundleContext().removeBundleListener(l) } catch { case e: Throwable ⇒ })
+    console.foreach(console ⇒ try { console.stopConsole() } catch {
+      case e: IllegalStateException if e.getMessage() == "BundleContext is no longer valid" ⇒ // skip, framework is already stopped
+      case e: Throwable ⇒ log.warn("Unable to stop OSGi console: " + e, e)
     })
-    try { unregisterLogService(framework) } catch { case e: Throwable => log.warn("Unable to unregister bridge OSGi log service: " + e, e) }
+    try { unregisterLogService(framework) } catch { case e: Throwable ⇒ log.warn("Unable to unregister bridge OSGi log service: " + e, e) }
     try { dependencyInjectionRegistration.foreach(_.unregister()) } catch {
-      case e: IllegalStateException if e.getMessage() == "The service has been unregistered" => // skip, framework is already stopped
-      case e: Throwable => log.warn("Unable to unregister DI service: " + e, e)
+      case e: IllegalStateException if e.getMessage() == "The service has been unregistered" ⇒ // skip, framework is already stopped
+      case e: Throwable ⇒ log.warn("Unable to unregister DI service: " + e, e)
     }
     dependencyInjectionRegistration = None
     dependencyInjectionService = None
   }
   /** Initialize DI for OSGi framework. */
   @log
-  def initializeDI(diScript: File, validator: Option[(Manifest[_], Option[String], Class[_]) => Boolean], framework: osgi.Framework) {
+  def initializeDI(diScript: File, validator: Option[(Manifest[_], Option[String], Class[_]) ⇒ Boolean], framework: osgi.Framework): Boolean = {
     log.debug("Initialize DI for OSGi.")
     val diInjector = new osgi.DI
-    diInjector.initialize(framework).foreach { diClassLoader =>
-      diInjector.evaluate(diScript, diClassLoader).foreach { di =>
-        try { dependencyInjectionRegistration.foreach(_.unregister()) } catch { case e: Throwable => log.warn("Unable to unregister DI service: " + e, e) }
-        // di is initialized within diClassLoader environment
-        log.info("Inject DI settings from " + diScript)
-        dependencyInjectionService = Some(new FrameworkLauncher.DependencyInjectionService(di, validator))
-        dependencyInjectionRegistration = Some(framework.getSystemBundleContext().registerService(classOf[DependencyInjection], dependencyInjectionService.get, null))
+    try {
+      diInjector.initialize(framework).map { diClassLoader ⇒
+        diInjector.evaluate(diScript, diClassLoader).foreach { di ⇒
+          try { dependencyInjectionRegistration.foreach(_.unregister()) } catch { case e: Throwable ⇒ log.warn("Unable to unregister DI service: " + e, e) }
+          // di is initialized within diClassLoader environment
+          log.info("Inject DI settings from " + diScript)
+          dependencyInjectionService = Some(new FrameworkLauncher.DependencyInjectionService(di, validator))
+          dependencyInjectionRegistration = Some(framework.getSystemBundleContext().registerService(classOf[DependencyInjection], dependencyInjectionService.get, null))
+        }
       }
+      true
+    } catch {
+      // Eval.CompilerException class is unavailable for the current class loader
+      case e if e.getClass.getName().endsWith("Eval$CompilerException") ⇒
+        log.error(s"Error in DI file ${diScript}: ${e.getMessage()}", e)
+        System.err.println(s"\nError in DI file ${diScript}:\n ${e.getMessage()}\n")
+        false
+      case e: Throwable ⇒
+        log.error("Unable to inject dependencies: " + e.getMessage(), e)
+        false
     }
   }
   /** Launch OSGi framework. */
@@ -166,7 +178,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
     val secondaryBundles = FrameworkProperties.getProperty(EclipseStarter.PROP_EXTENSIONS)
     val initialSecondaryBundles = supportLoader.getInitialBundles(secondaryBundles, Seq(Launcher.OSGiPackage), defaultStartLevel)
     val initialBundles = initialPrimaryBundles ++ initialSecondaryBundles.
-      filterNot(secondary => initialPrimaryBundles.exists(_.name == secondary.name))
+      filterNot(secondary ⇒ initialPrimaryBundles.exists(_.name == secondary.name))
     val availableBundles = initialBundles.map(_.originalString.trim)
     FrameworkProperties.setProperty(EclipseStarter.PROP_BUNDLES, availableBundles.mkString(","))
     log.trace("Complete initial bundle list:\n\t" + availableBundles.sorted.mkString("\n\t"))
@@ -198,11 +210,11 @@ class FrameworkLauncher extends BundleListener with Loggable {
     val leafConstraints = stateHelper.getUnsatisfiedLeaves(state.getBundles())
     // hash the missing leaf constraints by the declaring bundles
     val missing = new java.util.HashMap[BundleDescription, java.util.List[VersionConstraint]]()
-    for (leafConstraint <- leafConstraints) {
+    for (leafConstraint ← leafConstraints) {
       // only include non-optional and non-dynamic constraint leafs
       leafConstraint match {
-        case leafConstraint: BundleSpecification if leafConstraint.isOptional =>
-        case leafConstraint: BundleSpecification =>
+        case leafConstraint: BundleSpecification if leafConstraint.isOptional ⇒
+        case leafConstraint: BundleSpecification ⇒
           val bundle = leafConstraint.getBundle();
           val constraints = Option(missing.get(bundle)).getOrElse {
             val constraints = new java.util.ArrayList[VersionConstraint]()
@@ -210,7 +222,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
             constraints
           }
           constraints.add(leafConstraint)
-        case leafConstraint: ImportPackageSpecification =>
+        case leafConstraint: ImportPackageSpecification ⇒
           if (!ImportPackageSpecification.RESOLUTION_OPTIONAL.equals(leafConstraint.getDirective(Constants.RESOLUTION_DIRECTIVE)) &&
             !ImportPackageSpecification.RESOLUTION_DYNAMIC.equals(leafConstraint.getDirective(Constants.RESOLUTION_DIRECTIVE))) {
             val bundle = leafConstraint.getBundle();
@@ -221,19 +233,19 @@ class FrameworkLauncher extends BundleListener with Loggable {
             }
             constraints.add(leafConstraint)
           }
-        case _ =>
+        case _ ⇒
       }
     }
     // found some bundles with missing leaf constraints; log them first
     if (missing.size() > 0) {
       val rootChildren = new Array[FrameworkLogEntry](missing.size())
       var rootIndex = 0
-      for (description <- missing.keySet()) {
+      for (description ← missing.keySet()) {
         val symbolicName = Option(description.getSymbolicName()) getOrElse (FrameworkAdaptor.FRAMEWORK_SYMBOLICNAME)
         val generalMessage = NLS.bind(EclipseAdaptorMsg.ECLIPSE_STARTUP_ERROR_BUNDLE_NOT_RESOLVED, description.getLocation());
         val constraints = missing.get(description)
         val logChildren = new Array[FrameworkLogEntry](constraints.size())
-        for (i <- 0 until logChildren.length)
+        for (i ← 0 until logChildren.length)
           logChildren(i) = new FrameworkLogEntry(symbolicName, FrameworkLogEntry.WARNING, 0, MessageHelper.getResolutionFailureMessage(constraints.get(i)), 0, null, null)
         rootChildren(rootIndex) = new FrameworkLogEntry(FrameworkAdaptor.FRAMEWORK_SYMBOLICNAME, FrameworkLogEntry.WARNING, 0, generalMessage, 0, null, logChildren)
         rootIndex += 1
@@ -243,7 +255,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
     // There may be some bundles unresolved for other reasons, causing the system to be unresolved
     // log all unresolved constraints now
     val allChildren = new java.util.ArrayList[FrameworkLogEntry]()
-    for (bundle <- bundles)
+    for (bundle ← bundles)
       if (bundle.getState() == Bundle.INSTALLED) {
         val symbolicName = Option(bundle.getSymbolicName()) getOrElse (FrameworkAdaptor.FRAMEWORK_SYMBOLICNAME)
         val generalMessage = NLS.bind(EclipseAdaptorMsg.ECLIPSE_STARTUP_ERROR_BUNDLE_NOT_RESOLVED, bundle)
@@ -255,13 +267,13 @@ class FrameworkLauncher extends BundleListener with Loggable {
           if (unsatisfied.length > 0) {
             // the bundle wasn't resolved due to some of its constraints were unsatisfiable
             logChildren = new Array[FrameworkLogEntry](unsatisfied.length)
-            for (j <- 0 until unsatisfied.length)
+            for (j ← 0 until unsatisfied.length)
               logChildren(j) = new FrameworkLogEntry(symbolicName, FrameworkLogEntry.WARNING, 0, MessageHelper.getResolutionFailureMessage(unsatisfied(j)), 0, null, null)
           } else {
             val resolverErrors = state.getResolverErrors(description)
             if (resolverErrors.length > 0) {
               logChildren = new Array[FrameworkLogEntry](resolverErrors.length)
-              for (j <- 0 until resolverErrors.length)
+              for (j ← 0 until resolverErrors.length)
                 logChildren(j) = new FrameworkLogEntry(symbolicName, FrameworkLogEntry.WARNING, 0, resolverErrors(j).toString(), 0, null, null)
             }
           }
@@ -273,25 +285,25 @@ class FrameworkLauncher extends BundleListener with Loggable {
   }
   /** Refresh bundle. */
   @log
-  def refreshBundles[T](id: Iterable[Long], singleOperationTimeout: Int, framework: osgi.Framework)(fBeforeRefresh: => T): Boolean = {
+  def refreshBundles[T](id: Iterable[Long], singleOperationTimeout: Int, framework: osgi.Framework)(fBeforeRefresh: ⇒ T): Boolean = {
     log.debug(s"Refresh bundles with id (${id.mkString(",")}).")
     val context = framework.getSystemBundleContext()
     Option(context.getServiceReference(classOf[PackageAdmin])) match {
-      case Some(packageAdminRef) =>
+      case Some(packageAdminRef) ⇒
         try {
-          Option(context.getService(packageAdminRef)).map { packageAdmin =>
+          Option(context.getService(packageAdminRef)).map { packageAdmin ⇒
             val bundles = id.map(context.getBundle)
             if (bundles.isEmpty) {
               log.error(ConsoleMsg.CONSOLE_INVALID_BUNDLE_SPECIFICATION_ERROR)
               false
             } else {
-              val toStop = bundles.flatMap(b => if (b.getState() == Bundle.ACTIVE) Some(b) else None)
+              val toStop = bundles.flatMap(b ⇒ if (b.getState() == Bundle.ACTIVE) Some(b) else None)
               log.debug(s"Stop bundles (${toStop.map(_.getSymbolicName()).mkString(",")}).")
-              toStop.foreach { bundle =>
-                try { bundle.stop } catch { case e: Throwable => log.error("Unable to stop bundle " + bundle + ": " + e.getMessage(), e) }
+              toStop.foreach { bundle ⇒
+                try { bundle.stop } catch { case e: Throwable ⇒ log.error("Unable to stop bundle " + bundle + ": " + e.getMessage(), e) }
               }
-              waitForState(singleOperationTimeout, toStop.toSeq, (states) =>
-                states.forall(s => s != Bundle.ACTIVE && s != Bundle.STOPPING))
+              waitForState(singleOperationTimeout, toStop.toSeq, (states) ⇒
+                states.forall(s ⇒ s != Bundle.ACTIVE && s != Bundle.STOPPING))
               if (!waitForConsitentState(singleOperationTimeout, framework))
                 log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
               log.info(s"Refresh bundles (${bundles.map(_.getSymbolicName()).mkString(",")}).")
@@ -300,22 +312,22 @@ class FrameworkLauncher extends BundleListener with Loggable {
               if (!waitForConsitentState(singleOperationTimeout, framework))
                 log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
               // waiting for start up to 'singleOperationTimeout'
-              val toStart = context.getBundles().filter { b =>
+              val toStart = context.getBundles().filter { b ⇒
                 val exists = toStop.exists(_.getSymbolicName() == b.getSymbolicName())
                 val lazyPolicy = !framework.hasLazyActivationPolicy(b)
                 exists && lazyPolicy
               }
               log.debug(s"Waiting for bundles (${toStart.map(_.getSymbolicName()).mkString(",")}).")
               // there is nothing critical if we try to start bundle that is already starting
-              toStart.foreach { bundle =>
-                try { bundle.start } catch { case e: Throwable => log.error("Unable to start bundle " + bundle + ": " + e.getMessage(), e) }
+              toStart.foreach { bundle ⇒
+                try { bundle.start } catch { case e: Throwable ⇒ log.error("Unable to start bundle " + bundle + ": " + e.getMessage(), e) }
               }
-              waitForState(singleOperationTimeout, toStart.toSeq, (states) => states.forall(_ == Bundle.ACTIVE))
+              waitForState(singleOperationTimeout, toStart.toSeq, (states) ⇒ states.forall(_ == Bundle.ACTIVE))
               // try to start if something wrong
-              val notStarted = toStart.filter(b => b.getState() != Bundle.ACTIVE && b.getState() != Bundle.INSTALLED)
+              val notStarted = toStart.filter(b ⇒ b.getState() != Bundle.ACTIVE && b.getState() != Bundle.INSTALLED)
               if (notStarted.nonEmpty) {
                 log.warn(s"There are not started bundles, try to start them. Process: " +
-                  notStarted.map(b => b.getSymbolicName() + ": " + b.getState()).mkString(","))
+                  notStarted.map(b ⇒ b.getSymbolicName() + ": " + b.getState()).mkString(","))
                 notStarted.foreach(_.start)
                 if (!waitForConsitentState(singleOperationTimeout, framework))
                   log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
@@ -326,7 +338,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
         } finally {
           context.ungetService(packageAdminRef)
         }
-      case None =>
+      case None ⇒
         log.error(ConsoleMsg.CONSOLE_CAN_NOT_REFRESH_NO_PACKAGE_ADMIN_ERROR)
         false
     }
@@ -363,7 +375,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
     val ts = System.currentTimeMillis() + timeout
     def isConsistent = {
       val lastEventTS = System.currentTimeMillis() - lastBundleEvent.get
-      val stateIsConsistent = context.getBundles().forall(b => b.getBundleId() == 0 || consistent.contains(b.getState()))
+      val stateIsConsistent = context.getBundles().forall(b ⇒ b.getBundleId() == 0 || consistent.contains(b.getState()))
       val stateIsPersistent = lastEventTS > frame // All bundles are stable and there is $frame ms without new BundleEvent
       /*    Too much noise.
       if (!stateIsConsistent)
@@ -377,8 +389,8 @@ class FrameworkLauncher extends BundleListener with Loggable {
     // Count from NOW
     lastBundleEvent.set(System.currentTimeMillis())
     while ((isConsistent match {
-      case true => return true
-      case false => true
+      case true ⇒ return true
+      case false ⇒ true
     }) && (ts - System.currentTimeMillis > 0)) {
       val timeout = math.min(ts - System.currentTimeMillis, frame)
       lastBundleEvent.synchronized { lastBundleEvent.wait(timeout) }
@@ -389,7 +401,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
   }
   /** Wait for the specific state of bundle sequence. */
   @log
-  def waitForState(timeout: Int, bundles: Seq[Bundle], fInverse: Seq[Int] => Boolean) {
+  def waitForState(timeout: Int, bundles: Seq[Bundle], fInverse: Seq[Int] ⇒ Boolean) {
     val frame = 400 // 0.4s for decision
     val ts = System.currentTimeMillis() + timeout
     while (!fInverse(bundles.map(_.getState())) && (ts - System.currentTimeMillis > 0)) {
@@ -404,62 +416,62 @@ class FrameworkLauncher extends BundleListener with Loggable {
    * @param event The {@code BundleEvent}.
    */
   protected def bundleChanged(event: BundleEvent) = event.getType() match {
-    case BundleEvent.INSTALLED =>
+    case BundleEvent.INSTALLED ⇒
       log.debug("bundle %s is installed from context %s".
         format(event.getBundle().getSymbolicName(), event.getOrigin().getSymbolicName()))
       lastBundleEvent.synchronized {
         lastBundleEvent.set(System.currentTimeMillis())
         lastBundleEvent.notifyAll()
       }
-    case BundleEvent.STARTED =>
+    case BundleEvent.STARTED ⇒
       log.debug("bundle %s is started".format(event.getBundle().getSymbolicName()))
       lastBundleEvent.synchronized {
         lastBundleEvent.set(System.currentTimeMillis())
         lastBundleEvent.notifyAll()
       }
-    case BundleEvent.STOPPED =>
+    case BundleEvent.STOPPED ⇒
       log.debug("bundle %s is stopped".format(event.getBundle().getSymbolicName()))
       lastBundleEvent.synchronized {
         lastBundleEvent.set(System.currentTimeMillis())
         lastBundleEvent.notifyAll()
       }
-    case BundleEvent.UPDATED =>
+    case BundleEvent.UPDATED ⇒
       log.debug("bundle %s is updated".format(event.getBundle().getSymbolicName()))
       lastBundleEvent.synchronized {
         lastBundleEvent.set(System.currentTimeMillis())
         lastBundleEvent.notifyAll()
       }
-    case BundleEvent.UNINSTALLED =>
+    case BundleEvent.UNINSTALLED ⇒
       log.debug("bundle %s is uninstalled".format(event.getBundle().getSymbolicName()))
       lastBundleEvent.synchronized {
         lastBundleEvent.set(System.currentTimeMillis())
         lastBundleEvent.notifyAll()
       }
-    case BundleEvent.RESOLVED =>
+    case BundleEvent.RESOLVED ⇒
       log.debug("bundle %s is resolved".format(event.getBundle().getSymbolicName()))
       lastBundleEvent.synchronized {
         lastBundleEvent.set(System.currentTimeMillis())
         lastBundleEvent.notifyAll()
       }
-    case BundleEvent.UNRESOLVED =>
+    case BundleEvent.UNRESOLVED ⇒
       log.warn("bundle %s is unresolved".format(event.getBundle().getSymbolicName()))
       lastBundleEvent.synchronized {
         lastBundleEvent.set(System.currentTimeMillis())
         lastBundleEvent.notifyAll()
       }
-    case BundleEvent.STARTING =>
+    case BundleEvent.STARTING ⇒
       log.debug("bundle %s is starting".format(event.getBundle().getSymbolicName()))
       lastBundleEvent.synchronized {
         lastBundleEvent.set(System.currentTimeMillis())
         lastBundleEvent.notifyAll()
       }
-    case BundleEvent.STOPPING =>
+    case BundleEvent.STOPPING ⇒
       log.debug("bundle %s is stopping".format(event.getBundle().getSymbolicName()))
       lastBundleEvent.synchronized {
         lastBundleEvent.set(System.currentTimeMillis())
         lastBundleEvent.notifyAll()
       }
-    case BundleEvent.LAZY_ACTIVATION =>
+    case BundleEvent.LAZY_ACTIVATION ⇒
       log.debug("bundle %s lazy activation".format(event.getBundle().getSymbolicName()))
       lastBundleEvent.synchronized {
         lastBundleEvent.set(System.currentTimeMillis())
@@ -488,7 +500,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
       try {
         Thread.sleep(200)
       } catch {
-        case e: InterruptedException =>
+        case e: InterruptedException ⇒
           i == 5000
       }
     }
@@ -517,7 +529,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
       if (initialProperties.isEmpty) {
         log.warn("Initial properties is empty.")
       } else {
-        for ((key, value) <- initialProperties) if (value != null)
+        for ((key, value) ← initialProperties) if (value != null)
           FrameworkProperties.setProperty(key, value)
       }
     }
@@ -538,7 +550,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
           in.close()
         }
       } catch {
-        case e: IOException =>
+        case e: IOException ⇒
         // its ok if there is no file.  We'll just use the defaults for everything
         // TODO but it might be nice to log something with gentle wording (i.e., it is not an error)
       }
@@ -546,21 +558,21 @@ class FrameworkLauncher extends BundleListener with Loggable {
     }
     protected def merge(destination: Properties, source: Properties) =
       for {
-        entry <- source.entrySet().iterator()
-        key <- Option(entry.getKey()).map(_.asInstanceOf[String])
-        value <- Option(entry.getValue()).map(_.asInstanceOf[String])
+        entry ← source.entrySet().iterator()
+        key ← Option(entry.getKey()).map(_.asInstanceOf[String])
+        value ← Option(entry.getValue()).map(_.asInstanceOf[String])
       } if (destination.getProperty(key) == null) destination.setProperty(key, value)
     protected def substituteVars(result: Properties): Properties =
       if (result == null) {
         //nothing todo.
         null
       } else {
-        for (key <- result.keys()) key match {
-          case key: String =>
+        for (key ← result.keys()) key match {
+          case key: String ⇒
             val value = result.getProperty(key)
             if (value != null)
               result.put(key, BaseStorageHook.substituteVars(value))
-          case other =>
+          case other ⇒
         }
         result
       }
@@ -569,14 +581,14 @@ class FrameworkLauncher extends BundleListener with Loggable {
 
 object FrameworkLauncher {
   /** DI service that pass actual value to Digi-Lib activator */
-  class DependencyInjectionService(di: BindingModule, validator: Option[(Manifest[_], Option[String], Class[_]) => Boolean]) extends DependencyInjection {
+  class DependencyInjectionService(di: BindingModule, validator: Option[(Manifest[_], Option[String], Class[_]) ⇒ Boolean]) extends DependencyInjection {
     /** Returns actual DI. From the user diScript, builder with special class loader. */
     def getDependencyInjection() = di
     /**
      * Returns DI key validator if any.
      * @return - f(x,y,z) where x is key manifest, y is key name, z is DI loader.
      */
-    def getDependencyValidator(): Option[(Manifest[_], Option[String], Class[_]) => Boolean] = validator
+    def getDependencyValidator(): Option[(Manifest[_], Option[String], Class[_]) ⇒ Boolean] = validator
   }
   class OSGiLogBridge extends LogListener with ServiceTrackerCustomizer[LogReaderService, LogReaderService] with Loggable {
     @volatile protected var context: Option[BundleContext] = None
@@ -601,35 +613,35 @@ object FrameworkLauncher {
       val symbolicName = bundle.getSymbolicName().replaceAll("-", "_")
       val log = LoggerFactory.getLogger("@." + symbolicName)
       val message = Option(logEntry.getServiceReference()) match {
-        case Some(serviceReference) => logEntry.getMessage() + " fromRef:" + serviceReference.toString()
-        case None => logEntry.getMessage()
+        case Some(serviceReference) ⇒ logEntry.getMessage() + " fromRef:" + serviceReference.toString()
+        case None ⇒ logEntry.getMessage()
       }
       logEntry.getLevel() match {
-        case LogService.LOG_DEBUG =>
+        case LogService.LOG_DEBUG ⇒
           Option(logEntry.getException()) match {
-            case Some(exception) => log.debug(message, exception)
-            case None => log.debug(message)
+            case Some(exception) ⇒ log.debug(message, exception)
+            case None ⇒ log.debug(message)
           }
-        case LogService.LOG_INFO =>
+        case LogService.LOG_INFO ⇒
           Option(logEntry.getException()) match {
-            case Some(exception) => log.info(message, exception)
-            case None => log.info(message)
+            case Some(exception) ⇒ log.info(message, exception)
+            case None ⇒ log.info(message)
           }
-        case LogService.LOG_WARNING =>
+        case LogService.LOG_WARNING ⇒
           Option(logEntry.getException()) match {
-            case Some(exception) => log.warn(message, exception)
-            case None => log.warn(message)
+            case Some(exception) ⇒ log.warn(message, exception)
+            case None ⇒ log.warn(message)
           }
-        case LogService.LOG_ERROR =>
+        case LogService.LOG_ERROR ⇒
           Option(logEntry.getException()) match {
-            case Some(exception) => log.error(message, exception)
-            case None => log.error(message)
+            case Some(exception) ⇒ log.error(message, exception)
+            case None ⇒ log.error(message)
           }
       }
     }
     /** Subscribe to new LogReaderService */
     def addingService(serviceReference: ServiceReference[LogReaderService]): LogReaderService = {
-      context.map { context =>
+      context.map { context ⇒
         val logReaderService = context.getService(serviceReference)
         log.debug("Subscribe log listener to " + logReaderService.getClass.getName)
         logReaderService.addLogListener(this)

@@ -63,5 +63,5 @@ trait Report {
 
 object Report {
   case class Info(val component: Seq[Component], val os: String, val arch: String, val platform: String)
-  case class Component(val name: String, val version: String, val build: Date, val rawBuild: String)
+  case class Component(val name: String, val version: String, val build: Date, val rawBuild: String, bundleSymbolicName: String)
 }

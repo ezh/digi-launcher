@@ -166,7 +166,7 @@ object Launcher extends Loggable {
    */
   def main[T](wait: Boolean, launcherDI: ⇒ BindingModule,
     bootstrapRegExp: Seq[String], applicationDIScript: Option[File] = None)(shutdownHook: ⇒ T) = synchronized {
-    System.out.println("Launch application.")
+    System.out.println("Activating the launcher.")
     // Initialize DI, that may contains code with implicit OSGi initialization.
     // But this is not significant because we will have clean context from our framework loader
     // 1st DI - WINNER

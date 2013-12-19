@@ -44,39 +44,31 @@ class DI extends Loggable {
       log.warn("Unable to find DI script: " + script.getCanonicalPath())
       return None
     }
-    try {
-      // get delegationLoader from RootClassLoader via reflection
-      //val evalClazz = this.getClass().getClassLoader().asInstanceOf[{ val delegationLoader: ClassLoader }].delegationLoader.loadClass("com.twitter.util.Eval")
-      val evalClazz = classLoader.loadClass("com.twitter.util.Eval")
-      val evalCtor = evalClazz.getConstructor(classOf[Option[File]])
-      // None -> in memory compilation
-      val eval = evalCtor.newInstance(None).asInstanceOf[{ def apply[T](files: File*): T }]
-      // Eval script as class Evaluator__... extends (() => Any) { def apply() = { SCRIPT } }
-      val di = eval[BindingModule](script)
-      log.debug(s"DI file ${script} compiles successful.")
-      Some(di)
-    } catch {
-      // Eval.CompilerException class is unavailable for the current class loader
-      case e if e.getClass.getName().endsWith("Eval$CompilerException") =>
-        log.error(s"Error in DI file ${script}: ${e.getMessage()}", e)
-        System.err.println(s"Error in DI file ${script}: ${e.getMessage()}\n")
-        None
-    }
+    // get delegationLoader from RootClassLoader via reflection
+    //val evalClazz = this.getClass().getClassLoader().asInstanceOf[{ val delegationLoader: ClassLoader }].delegationLoader.loadClass("com.twitter.util.Eval")
+    val evalClazz = classLoader.loadClass("com.twitter.util.Eval")
+    val evalCtor = evalClazz.getConstructor(classOf[Option[File]])
+    // None -> in memory compilation
+    val eval = evalCtor.newInstance(None).asInstanceOf[{ def apply[T](files: File*): T }]
+    // Eval script as class Evaluator__... extends (() => Any) { def apply() = { SCRIPT } }
+    val di = eval[BindingModule](script)
+    log.debug(s"DI file ${script} compiles successful.")
+    Some(di)
   }
   /** Create DI consolidated class loader. */
   def initialize(framework: Framework): Option[DI.ClassLoader] = {
     log.debug("Initialize dependency injection.")
-    val bundleContext = framework.getSystemBundleContext().getBundles().flatMap(bundle =>
+    val bundleContext = framework.getSystemBundleContext().getBundles().flatMap(bundle ⇒
       Option(try {
         Option(bundle.adapt(classOf[BundleWiring])) match {
-          case Some(adapted) =>
+          case Some(adapted) ⇒
             (bundle, adapted.getClassLoader())
-          case None =>
+          case None ⇒
             log.debug(s"Skip bundle ${bundle}: the classloader is unavailable.")
             null
         }
       } catch {
-        case e: Throwable =>
+        case e: Throwable ⇒
           // Is it a BUG in OSGi implementation?
           if (bundle.getBundleId() != 0)
             log.debug(s"Unable to get bundle ${bundle} class loader: " + e.getMessage(), e)
@@ -108,7 +100,7 @@ object DI extends Loggable {
         try {
           return super.loadClass(name, resolve)
         } catch {
-          case _: ClassNotFoundException =>
+          case _: ClassNotFoundException ⇒
         }
       log.debug("Try to load DI class " + name)
       // Try to load from parent loader.
@@ -118,17 +110,17 @@ object DI extends Loggable {
           log.debug("Loading via parent(FWK) loader " + clazz)
           return clazz
         } catch {
-          case _: ClassNotFoundException =>
+          case _: ClassNotFoundException ⇒
         }
       // Try to load from collected bundle class loaders
-      bundleClassLoaders.foreach { bundleClassLoader =>
+      bundleClassLoaders.foreach { bundleClassLoader ⇒
         if (bundleClassLoader != null)
           try {
             val clazz = bundleClassLoader.loadClass(name)
             log.debug(s"Loading via bundle loader ${bundleClassLoader}: " + clazz)
             return clazz
           } catch {
-            case _: ClassNotFoundException =>
+            case _: ClassNotFoundException ⇒
           }
       }
       // Try to load from this loader as a last chance.
@@ -137,7 +129,7 @@ object DI extends Loggable {
         log.debug("Loading directly from jar: " + clazz)
         return clazz
       } catch {
-        case _: ClassNotFoundException =>
+        case _: ClassNotFoundException ⇒
       }
 
       throw new ClassNotFoundException(name)

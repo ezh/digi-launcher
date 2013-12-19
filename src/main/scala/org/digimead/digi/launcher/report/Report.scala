@@ -20,45 +20,23 @@
 
 package org.digimead.digi.launcher.report
 
-import java.io.BufferedInputStream
-import java.io.BufferedOutputStream
-import java.io.BufferedWriter
-import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.io.FileWriter
-import java.io.FilenameFilter
-import java.io.InputStream
-import java.io.OutputStream
-import java.io.PrintWriter
-import java.io.StringWriter
+import com.escalatesoft.subcut.inject.{ BindingModule, Injectable }
+import java.io.{ BufferedInputStream, BufferedOutputStream, BufferedWriter, File, FileInputStream, FileOutputStream, FileWriter, FilenameFilter, InputStream, OutputStream, PrintWriter, StringWriter }
 import java.lang.management.ManagementFactory
-import java.text.DateFormat
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Properties
+import java.text.{ DateFormat, SimpleDateFormat }
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import java.util.zip.GZIPOutputStream
-
-import scala.Array.canBuildFrom
-import scala.Option.option2Iterable
+import java.util.{ Date, Properties }
+import org.digimead.digi.lib.aop.log
+import org.digimead.digi.lib.api.DependencyInjection
+import org.digimead.digi.lib.log.api.{ Event, Level, Loggable }
 import scala.annotation.tailrec
 import scala.collection.JavaConversions.enumerationAsScalaIterator
 import scala.collection.TraversableOnce.flattenTraversableOnce
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.future
-
-import org.digimead.digi.lib.aop.log
-import org.digimead.digi.lib.api.DependencyInjection
-import org.digimead.digi.lib.log.api.Event
-import org.digimead.digi.lib.log.api.Level
-import org.digimead.digi.lib.log.api.Loggable
-
-import com.escalatesoft.subcut.inject.BindingModule
-import com.escalatesoft.subcut.inject.Injectable
-
-import language.implicitConversions
+import scala.concurrent.Future
+import scala.language.implicitConversions
 
 class Report(implicit val bindingModule: BindingModule) extends api.Report with Injectable with Loggable {
   /** Flag indicating whether stack trace generation enabled. */
@@ -302,12 +280,13 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
       properties.load(resURL.openStream())
       Option(properties.getProperty("name")).map { name ⇒
         val version = Option(properties.getProperty("version")).getOrElse("0")
+        val bundleSymbolicName = Option(properties.getProperty("bundleSymbolicName")).getOrElse("")
         Option(properties.getProperty("build")) match {
           case Some(rawBuild) ⇒
             val date = try { new Date(rawBuild.toLong * 1000) } catch { case e: Throwable ⇒ new Date(0) }
-            api.Report.Component(name, version, date, rawBuild)
+            api.Report.Component(name, version, date, rawBuild, bundleSymbolicName)
           case None ⇒
-            api.Report.Component(name, version, new Date(0), "0")
+            api.Report.Component(name, version, new Date(0), "0", bundleSymbolicName)
         }
       }
     } catch {
@@ -404,7 +383,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
       event match {
         case event: Event.Outgoing ⇒
           if (event.record.throwable.nonEmpty && event.record.level == Level.Error) {
-            future {
+            Future {
               if (lock.tryLock()) try {
                 if (allowGenerateStackTrace)
                   generateStackTrace(event.record.pid, event.record.tid, event.record.tag + ": " + event.record.message, event.record.throwable.get, event.record.date)
