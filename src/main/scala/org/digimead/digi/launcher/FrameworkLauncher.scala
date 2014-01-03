@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -20,52 +20,30 @@
 
 package org.digimead.digi.launcher
 
-import java.io.File
-import java.io.IOException
-import java.net.MalformedURLException
+import com.escalatesoft.subcut.inject.BindingModule
+import java.io.{ File, IOException }
 import java.net.URL
 import java.util.Properties
 import java.util.concurrent.atomic.AtomicLong
-
-import scala.Array.canBuildFrom
-import scala.collection.JavaConversions._
-
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.api.DependencyInjection
 import org.digimead.digi.lib.log.api.Loggable
-import org.eclipse.core.runtime.adaptor.EclipseStarter
-import org.eclipse.core.runtime.adaptor.LocationManager
-import org.eclipse.core.runtime.internal.adaptor.EclipseAdaptorMsg
-import org.eclipse.core.runtime.internal.adaptor.MessageHelper
+import org.eclipse.core.runtime.adaptor.{ EclipseStarter, LocationManager }
+import org.eclipse.core.runtime.internal.adaptor.{ EclipseAdaptorMsg, MessageHelper }
 import org.eclipse.osgi.framework.adaptor.FrameworkAdaptor
-import org.eclipse.osgi.framework.internal.core.ConsoleManager
-import org.eclipse.osgi.framework.internal.core.ConsoleMsg
-import org.eclipse.osgi.framework.internal.core.FrameworkProperties
+import org.eclipse.osgi.framework.internal.core.{ ConsoleManager, ConsoleMsg, FrameworkProperties }
 import org.eclipse.osgi.framework.log.FrameworkLogEntry
 import org.eclipse.osgi.internal.baseadaptor.BaseStorageHook
 import org.eclipse.osgi.internal.profile.Profile
-import org.eclipse.osgi.service.resolver.BundleDescription
-import org.eclipse.osgi.service.resolver.BundleSpecification
-import org.eclipse.osgi.service.resolver.ImportPackageSpecification
-import org.eclipse.osgi.service.resolver.VersionConstraint
+import org.eclipse.osgi.service.resolver.{ BundleDescription, BundleSpecification, ImportPackageSpecification, VersionConstraint }
 import org.eclipse.osgi.util.NLS
-import org.osgi.framework.Bundle
-import org.osgi.framework.BundleContext
-import org.osgi.framework.BundleEvent
-import org.osgi.framework.BundleListener
-import org.osgi.framework.Constants
-import org.osgi.framework.ServiceReference
-import org.osgi.framework.ServiceRegistration
-import org.osgi.service.log.LogEntry
-import org.osgi.service.log.LogListener
-import org.osgi.service.log.LogReaderService
-import org.osgi.service.log.LogService
+import org.osgi.framework.{ Bundle, BundleContext, BundleEvent, BundleListener, Constants, ServiceReference, ServiceRegistration }
+import org.osgi.service.log.{ LogEntry, LogListener, LogReaderService, LogService }
 import org.osgi.service.packageadmin.PackageAdmin
-import org.osgi.util.tracker.ServiceTracker
-import org.osgi.util.tracker.ServiceTrackerCustomizer
+import org.osgi.util.tracker.{ ServiceTracker, ServiceTrackerCustomizer }
 import org.slf4j.LoggerFactory
-
-import com.escalatesoft.subcut.inject.BindingModule
+import scala.Array.canBuildFrom
+import scala.collection.JavaConversions.{ asScalaIterator, asScalaSet, enumerationAsScalaIterator }
 
 /**
  * Framework launcher that is used by Application launcher.
@@ -105,6 +83,13 @@ class FrameworkLauncher extends BundleListener with Loggable {
       false
     } else
       true
+  }
+  /** Deinitialize dependency injection. */
+  @log
+  def deinitializeDI() = {
+    try { dependencyInjectionRegistration.foreach(_.unregister()) } catch { case e: Throwable ⇒ log.warn("Unable to unregister DI service: " + e, e) }
+    dependencyInjectionRegistration = None
+    dependencyInjectionService = None
   }
   /** Finish processes of OSGi framework. */
   @log
@@ -285,7 +270,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
   }
   /** Refresh bundle. */
   @log
-  def refreshBundles[T](id: Iterable[Long], singleOperationTimeout: Int, framework: osgi.Framework)(fBeforeRefresh: ⇒ T): Boolean = {
+  def refreshBundles[T](id: Iterable[Long], singleOperationTimeout: Int, framework: osgi.Framework)(fBeforeRefresh: ⇒ T)(fAfterRefresh: ⇒ T): Boolean = {
     log.debug(s"Refresh bundles with id (${id.mkString(",")}).")
     val context = framework.getSystemBundleContext()
     Option(context.getServiceReference(classOf[PackageAdmin])) match {
@@ -307,10 +292,13 @@ class FrameworkLauncher extends BundleListener with Loggable {
               if (!waitForConsitentState(singleOperationTimeout, framework))
                 log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
               log.info(s"Refresh bundles (${bundles.map(_.getSymbolicName()).mkString(",")}).")
-              fBeforeRefresh // call user function
+
+              fBeforeRefresh // call the user function
               packageAdmin.refreshPackages(bundles.toArray)
               if (!waitForConsitentState(singleOperationTimeout, framework))
                 log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
+              fAfterRefresh // call the user function
+
               // waiting for start up to 'singleOperationTimeout'
               val toStart = context.getBundles().filter { b ⇒
                 val exists = toStop.exists(_.getSymbolicName() == b.getSymbolicName())

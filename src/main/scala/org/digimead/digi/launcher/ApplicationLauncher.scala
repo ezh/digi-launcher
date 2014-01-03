@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -294,10 +294,9 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
             log.warn(s"Development mode. Refresh only modified bundles.")
             if (processDevelopmentMonitor(modifiedBundles, monitor, framework, forceReload)) {
               monitor = initializeDevelopmentMonitor(framework)
-              // Apply new DI, initialize DI for our OSGi infrastructure.
-              applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
             }
           case dev ⇒
+            frameworkLauncher.deinitializeDI()
             // We have explicit list of bundles
             val toReload = framework.getSystemBundleContext().getBundles().filter(b ⇒ dev.exists(_ == b.getSymbolicName()))
             if (toReload.size != dev.size) {
@@ -309,20 +308,24 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
             val modified = toReload.map(_.getBundleId())
             log.warn(s"Development mode. Refresh bundles with IDs (${modified.mkString(", ")})")
             frameworkLauncher.refreshBundles(modified, maximumDuration, framework) {
+              frameworkLauncher.deinitializeDI()
               report.foreach { report ⇒ report.rotate }
+            } {
+              // Apply new DI, initialize DI for our OSGi infrastructure.
+              applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
             }
-            // Apply new DI, initialize DI for our OSGi infrastructure.
-            applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
         }
       } else if (code == ApplicationLauncher.ReturnCode.RESTART && modifiedBundles.nonEmpty) {
         // We are in production mode but application requests restart
         // modifiedBundles MUST contain at least application bundle ID (look at appDigiCall)
         log.warn(s"Production mode. Refresh application bundle with IDs ${modifiedBundles.mkString(", ")}")
         frameworkLauncher.refreshBundles(modifiedBundles, maximumDuration, framework) {
+          frameworkLauncher.deinitializeDI()
           report.foreach { report ⇒ report.rotate }
+        } {
+          // Apply new DI, initialize DI for our OSGi infrastructure.
+          applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
         }
-        // Apply new DI, initialize DI for our OSGi infrastructure.
-        applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
       }
     }
   }
@@ -567,7 +570,11 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     if (modified.nonEmpty || modifiedBundles.nonEmpty) {
       log.warn(s"Development mode. Refresh bundles with IDs (${modified.mkString(", ")})")
       frameworkLauncher.refreshBundles((modifiedBundles ++ modified).distinct, maximumDuration, framework) {
+        frameworkLauncher.deinitializeDI()
         report.foreach { report ⇒ report.rotate }
+      } {
+        // Apply new DI, initialize DI for our OSGi infrastructure.
+        applicationDIScript.foreach(frameworkLauncher.initializeDI(_, dependencyValidator, framework))
       }
     } else
       false

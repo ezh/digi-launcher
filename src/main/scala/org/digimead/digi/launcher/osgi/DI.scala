@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -20,40 +20,37 @@
 
 package org.digimead.digi.launcher.osgi
 
-import java.io.File
-import java.net.URL
-import java.net.URLClassLoader
-
-import scala.Array.canBuildFrom
-import scala.Array.fallbackCanBuildFrom
-import scala.Option.option2Iterable
-
-import org.digimead.digi.lib.log.api.Loggable
-import org.osgi.framework.wiring.BundleWiring
-
 import com.escalatesoft.subcut.inject.BindingModule
-
-import language.reflectiveCalls
+import java.io.File
+import java.net.{URL, URLClassLoader}
+import org.digimead.digi.lib.log.api.Loggable
+import org.osgi.framework.Bundle
+import org.osgi.framework.wiring.BundleWiring
+import scala.Array.{canBuildFrom, fallbackCanBuildFrom}
+import scala.Option.option2Iterable
+import scala.language.reflectiveCalls
 
 /** OSGi framework DI initializer */
 class DI extends Loggable {
   /** Evaluate DI from script with DI class loader */
   def evaluate(script: File, classLoader: DI.ClassLoader): Option[BindingModule] = {
     log.debug(s"Evaluate DI settings with classloader which is included ${classLoader.bundleClassLoaders.length} subloader(s).")
-    if (!script.exists() || !script.isFile()) {
-      log.warn("Unable to find DI script: " + script.getCanonicalPath())
-      return None
-    }
-    // get delegationLoader from RootClassLoader via reflection
-    //val evalClazz = this.getClass().getClassLoader().asInstanceOf[{ val delegationLoader: ClassLoader }].delegationLoader.loadClass("com.twitter.util.Eval")
-    val evalClazz = classLoader.loadClass("com.twitter.util.Eval")
-    val evalCtor = evalClazz.getConstructor(classOf[Option[File]])
-    // None -> in memory compilation
-    val eval = evalCtor.newInstance(None).asInstanceOf[{ def apply[T](files: File*): T }]
-    // Eval script as class Evaluator__... extends (() => Any) { def apply() = { SCRIPT } }
-    val di = eval[BindingModule](script)
-    log.debug(s"DI file ${script} compiles successful.")
-    Some(di)
+    val savedTCCL = Thread.currentThread().getContextClassLoader()
+    try {
+      Thread.currentThread().setContextClassLoader(classLoader)
+      if (!script.exists() || !script.isFile()) {
+        log.warn("Unable to find DI script: " + script.getCanonicalPath())
+        return None
+      }
+      val scriptClazz = classLoader.loadClass("org.digimead.digi.launcher.osgi.Script")
+      val scriptMethod = scriptClazz.getDeclaredMethod("apply", classOf[File])
+      // None -> in memory compilation
+      val eval = scriptClazz.newInstance()
+      // Eval script as class Evaluator__... extends (() => Any) { def apply() = { SCRIPT } }
+      val di = scriptMethod.invoke(eval, script).asInstanceOf[BindingModule]
+      log.debug(s"DI file ${script} compiles successful.")
+      Some(di)
+    } finally Thread.currentThread().setContextClassLoader(savedTCCL)
   }
   /** Create DI consolidated class loader. */
   def initialize(framework: Framework): Option[DI.ClassLoader] = {
@@ -91,18 +88,20 @@ object DI extends Loggable {
    * Standard parent-first class loader with additional search over bundleClassLoaders
    */
   class ClassLoader(parent: java.lang.ClassLoader, urls: Array[URL],
-    val bundleClassLoaders: Seq[java.lang.ClassLoader]) extends URLClassLoader(urls, parent) {
+    val bundleClassLoaders: Seq[java.lang.ClassLoader]) extends URLClassLoader(urls, null) {
     // It is never returns null, as the specification defines
     /** Loads the class with the specified binary name. */
     override protected def loadClass(name: String, resolve: Boolean): Class[_] = {
       // Try to load from this entry point.
-      if (name.startsWith("com.twitter.util.Eval"))
+      if (name.startsWith("org.digimead.digi.launcher.osgi.Script"))
         try {
+          log.debug("Loading " + name)
           return super.loadClass(name, resolve)
         } catch {
           case _: ClassNotFoundException ⇒
         }
       log.debug("Try to load DI class " + name)
+
       // Try to load from parent loader.
       if (parent != null)
         try {
@@ -112,7 +111,34 @@ object DI extends Loggable {
         } catch {
           case _: ClassNotFoundException ⇒
         }
-      // Try to load from collected bundle class loaders
+
+      // Try to load from the MOST SPECIFIC collected bundle class loader
+      val applicant = bundleClassLoaders.map {
+        case null ⇒
+          None
+        case bundleClassLoader if bundleClassLoader.getClass().getName() == "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader" ⇒
+          val prefix = bundleClassLoader.asInstanceOf[{ def getBundle(): Bundle }].getBundle().
+            getSymbolicName().takeWhile(c ⇒ c != '-' && c != '_')
+          if (name.startsWith(prefix))
+            Some(prefix.length(), bundleClassLoader)
+          else
+            None
+        case bundleClassLoader ⇒
+          log.error(s"Unknown class loader ${bundleClassLoader}: " + bundleClassLoader.getClass())
+          None
+      }
+      applicant.flatten.sortBy(-_._1).foreach {
+        case (prefixLength, bundleClassLoader) ⇒
+          try {
+            val clazz = bundleClassLoader.loadClass(name)
+            log.debug(s"Loading via bundle loader ${bundleClassLoader}: " + clazz)
+            return clazz
+          } catch {
+            case _: ClassNotFoundException ⇒
+          }
+      }
+
+      // Try to load from ANY collected bundle class loader
       bundleClassLoaders.foreach { bundleClassLoader ⇒
         if (bundleClassLoader != null)
           try {
@@ -123,6 +149,7 @@ object DI extends Loggable {
             case _: ClassNotFoundException ⇒
           }
       }
+
       // Try to load from this loader as a last chance.
       try {
         val clazz = super.loadClass(name, resolve)
