@@ -117,8 +117,18 @@ class FrameworkLauncher extends BundleListener with Loggable {
       diInjector.initialize(framework).map { diClassLoader ⇒
         diInjector.evaluate(diScript, diClassLoader).foreach { di ⇒
           try { dependencyInjectionRegistration.foreach(_.unregister()) } catch { case e: Throwable ⇒ log.warn("Unable to unregister DI service: " + e, e) }
-          // di is initialized within diClassLoader environment
+          // DI is initialized within diClassLoader environment
           log.info("Inject DI settings from " + diScript)
+          // Re inject global DI
+          val delegationLoader = this.getClass().getClassLoader().
+            asInstanceOf[{ val delegationLoader: ClassLoader }].delegationLoader
+          val diBindingModuleArg = delegationLoader.loadClass("com.escalatesoft.subcut.inject.BindingModule")
+          val diSingletonClass = delegationLoader.loadClass("org.digimead.digi.lib.DependencyInjection$")
+          val diSingletonInstance = diSingletonClass.getField("MODULE$").get(null)
+          diSingletonClass.getMethod("reset").invoke(diSingletonInstance)
+          diSingletonClass.getMethod("apply", diBindingModuleArg, java.lang.Boolean.TYPE).invoke(
+            diSingletonInstance, di, java.lang.Boolean.FALSE)
+          // Pass DI to service
           dependencyInjectionService = Some(new FrameworkLauncher.DependencyInjectionService(di, validator))
           dependencyInjectionRegistration = Some(framework.getSystemBundleContext().registerService(classOf[DependencyInjection], dependencyInjectionService.get, null))
         }

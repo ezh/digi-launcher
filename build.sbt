@@ -68,6 +68,7 @@ if (sys.env.contains("XBOOTCLASSPATH")) Seq(javacOptions += "-Xbootclasspath:" +
 resolvers += "digimead-maven" at "http://storage.googleapis.com/maven.repository.digimead.org/"
 
 libraryDependencies ++= Seq(
+    "org.scala-lang" % "scala-compiler" % "2.10.3",
     "org.digimead" %% "digi-lib" % "0.2.3.4-SNAPSHOT",
     "org.digimead" %% "digi-lib-test" % "0.2.2.4-SNAPSHOT" % "test",
     "org.eclipse" % "org.eclipse.osgi" % "3.8.0.v20120529-1548",
