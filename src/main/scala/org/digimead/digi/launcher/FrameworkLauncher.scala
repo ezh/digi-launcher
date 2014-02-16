@@ -44,6 +44,7 @@ import org.osgi.util.tracker.{ ServiceTracker, ServiceTrackerCustomizer }
 import org.slf4j.LoggerFactory
 import scala.Array.canBuildFrom
 import scala.collection.JavaConversions.{ asScalaIterator, asScalaSet, enumerationAsScalaIterator }
+import scala.language.reflectiveCalls
 
 /**
  * Framework launcher that is used by Application launcher.
