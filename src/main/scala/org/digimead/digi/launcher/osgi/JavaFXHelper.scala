@@ -21,6 +21,7 @@
 package org.digimead.digi.launcher.osgi
 
 import java.io.File
+import java.net.{ URL, URLClassLoader }
 import java.security.ProtectionDomain
 import java.util.ArrayList
 import org.digimead.digi.lib.log.api.Loggable
@@ -30,13 +31,14 @@ import org.eclipse.osgi.baseadaptor.hooks.ClassLoadingHook
 import org.eclipse.osgi.baseadaptor.loader.{ BaseClassLoader, ClasspathEntry, ClasspathManager }
 import org.eclipse.osgi.framework.adaptor.{ BundleProtectionDomain, ClassLoaderDelegate }
 import org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader
-import org.eclipse.osgi.internal.loader.BundleLoader
 
 /**
  * Hook that attach JavaFX library to SWT bundle
  */
 class JavaFXHelper(library: File) extends ClassLoadingHook with Loggable {
   log.debug("Inject JavaFX OSGi Helper")
+  /** URL class loader with jfxrt.jar */
+  val rtLoader = new URLClassLoader(Array(library.getCanonicalFile().toURI().toURL()), null)
 
   /**
    * Gets called by a classpath manager before defining a class.  This method allows a class loading hook
@@ -97,7 +99,10 @@ class JavaFXHelper(library: File) extends ClassLoadingHook with Loggable {
    * @param bundleclasspath the classpath for the bundle classloader
    * @return a newly created bundle classloader
    */
-  def createClassLoader(parent: ClassLoader, delegate: ClassLoaderDelegate, domain: BundleProtectionDomain, data: BaseData, bundleclasspath: Array[String]): BaseClassLoader = null
+  def createClassLoader(parent: ClassLoader, delegate: ClassLoaderDelegate, domain: BundleProtectionDomain, data: BaseData, bundleclasspath: Array[String]): BaseClassLoader = {
+    log.debug("Attach JavaFX resources to " + data.getSymbolicName())
+    new JavaFXHelper.ClassLoaderWithJavaFX(parent, delegate, domain, data, bundleclasspath, rtLoader)
+  }
   /**
    * Gets called by a classpath manager at the end of
    * {@link ClasspathManager#initialize()}.
@@ -132,11 +137,10 @@ object JavaFXHelper extends Loggable {
     }
   }
 
-
-/**
- * OSGi hook
- * For example: osgi.hook.configurators.include=org.digimead.digi.launcher.osgi.JavaFXHelper$OSGiHook
- */
+  /**
+   * OSGi hook
+   * For example: osgi.hook.configurators.include=org.digimead.digi.launcher.osgi.JavaFXHelper$OSGiHook
+   */
   class OSGiHook extends HookConfigurator {
     def addHooks(hookRegistry: HookRegistry) = getJavaFXRT() match {
       case Some(library) ⇒
@@ -144,5 +148,36 @@ object JavaFXHelper extends Loggable {
       case None ⇒
         log.warn("jfxrt.jar not found... support disabled.")
     }
+  }
+  /**
+   * SWT bundle custom class loader.
+   */
+  class ClassLoaderWithJavaFX(parent: ClassLoader, delegate: ClassLoaderDelegate, domain: ProtectionDomain, bundledata: BaseData, classpath: Array[String], rtLoader: ClassLoader)
+    extends DefaultClassLoader(parent, delegate, domain, bundledata, classpath) {
+    override def getResource(name: String) = super.getResource(name) match {
+      case null ⇒ rtLoader.getResource(name)
+      case result ⇒ result
+    }
+    override def getResources(name: String) = {
+      val enumeration1 = super.getResources(name)
+      val enumeration2 = rtLoader.getResources(name)
+      if (enumeration1.hasMoreElements() && enumeration2.hasMoreElements())
+        new DualEnumeration(enumeration1, enumeration2)
+      else if (enumeration1.hasMoreElements())
+        enumeration1
+      else
+        enumeration2
+    }
+    override def getResourceAsStream(name: String) = super.getResourceAsStream(name) match {
+      case null ⇒ rtLoader.getResourceAsStream(name)
+      case result ⇒ result
+    }
+  }
+  /**
+   * Enumeration that merges two children.
+   */
+  class DualEnumeration(one: java.util.Enumeration[URL], two: java.util.Enumeration[URL]) extends java.util.Enumeration[URL] {
+    def hasMoreElements() = one.hasMoreElements() && two.hasMoreElements()
+    def nextElement() = if (one.hasMoreElements()) one.nextElement() else two.nextElement()
   }
 }

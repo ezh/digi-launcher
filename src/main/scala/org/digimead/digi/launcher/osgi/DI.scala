@@ -22,11 +22,11 @@ package org.digimead.digi.launcher.osgi
 
 import com.escalatesoft.subcut.inject.BindingModule
 import java.io.File
-import java.net.{URL, URLClassLoader}
+import java.net.{ URL, URLClassLoader }
 import org.digimead.digi.lib.log.api.Loggable
 import org.osgi.framework.Bundle
 import org.osgi.framework.wiring.BundleWiring
-import scala.Array.{canBuildFrom, fallbackCanBuildFrom}
+import scala.Array.{ canBuildFrom, fallbackCanBuildFrom }
 import scala.Option.option2Iterable
 import scala.language.reflectiveCalls
 
@@ -116,7 +116,7 @@ object DI extends Loggable {
       val applicant = bundleClassLoaders.map {
         case null ⇒
           None
-        case bundleClassLoader if bundleClassLoader.getClass().getName() == "org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader" ⇒
+        case bundleClassLoader if bundleClassLoader.getClass().getMethods.exists(_.getName() == "getBundle") ⇒
           val prefix = bundleClassLoader.asInstanceOf[{ def getBundle(): Bundle }].getBundle().
             getSymbolicName().takeWhile(c ⇒ c != '-' && c != '_')
           if (name.startsWith(prefix))
