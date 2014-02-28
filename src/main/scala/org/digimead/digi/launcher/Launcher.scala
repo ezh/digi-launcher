@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -20,22 +20,16 @@
 
 package org.digimead.digi.launcher
 
+import com.escalatesoft.subcut.inject.{ BindingModule, Injectable }
 import java.io.File
-import java.net.URI
-import java.net.URL
-import java.net.URLClassLoader
-
-import org.digimead.digi.launcher.report.ExceptionHandler
-import org.digimead.digi.launcher.report.Report
+import java.net.{ URI, URL, URLClassLoader }
+import java.util.concurrent.atomic.AtomicBoolean
+import org.digimead.digi.launcher.report.{ ExceptionHandler, Report }
 import org.digimead.digi.lib.Activator
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.api.DependencyInjection
 import org.digimead.digi.lib.log.api.Loggable
-
-import com.escalatesoft.subcut.inject.BindingModule
-import com.escalatesoft.subcut.inject.Injectable
-
-import language.reflectiveCalls
+import scala.language.reflectiveCalls
 
 /**
  * Lightweight OSGi wrapper that starts Digi application.
@@ -67,7 +61,7 @@ class Launcher(implicit val bindingModule: BindingModule)
     val parentClassLoader = null // The parent class loader for default delegation
     val factory = null // The URLStreamHandlerFactory to use when creating URLs.
     val bootDelegationClassLoader = getClass.getClassLoader() // The boot delegation class loader for custom delegation expression
-    new RootClassLoader(urls, parentClassLoader, factory, bootDelegationClassLoader)
+    new RootClassLoader(urls, parentClassLoader, factory, bootDelegationClassLoader, new AtomicBoolean(false))
   }
   /** The application launcher instance that is instantiated from the root classloader */
   lazy val applicationLauncher = {

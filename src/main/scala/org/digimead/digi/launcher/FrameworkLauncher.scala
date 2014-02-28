@@ -58,9 +58,9 @@ class FrameworkLauncher extends BundleListener with Loggable {
   lazy val supportLocator = new osgi.SupportBundleLocator()
   /** Helper with framework loading logic */
   lazy val supportLoader = new osgi.SupportBundleLoader(supportLocator)
-  /** Dependency Injection service */
+  /** Dependency Injection service. */
   @volatile protected var dependencyInjectionService: Option[FrameworkLauncher.DependencyInjectionService] = None
-  /** Dependency Injection service */
+  /** Dependency Injection service registration. */
   @volatile protected var dependencyInjectionRegistration: Option[ServiceRegistration[DependencyInjection]] = None
 
   /** Check OSGi framework launch. */

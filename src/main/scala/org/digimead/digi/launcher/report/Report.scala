@@ -24,16 +24,15 @@ import com.escalatesoft.subcut.inject.{ BindingModule, Injectable }
 import java.io.{ BufferedInputStream, BufferedOutputStream, BufferedWriter, File, FileInputStream, FileOutputStream, FileWriter, FilenameFilter, InputStream, OutputStream, PrintWriter, StringWriter }
 import java.lang.management.ManagementFactory
 import java.text.{ DateFormat, SimpleDateFormat }
+import java.util.{ Date, Properties }
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import java.util.zip.GZIPOutputStream
-import java.util.{ Date, Properties }
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.api.DependencyInjection
 import org.digimead.digi.lib.log.api.{ Event, Level, Loggable }
 import scala.annotation.tailrec
 import scala.collection.JavaConversions.enumerationAsScalaIterator
-import scala.collection.TraversableOnce.flattenTraversableOnce
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.language.implicitConversions

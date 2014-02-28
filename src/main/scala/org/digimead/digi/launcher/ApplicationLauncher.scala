@@ -256,7 +256,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     var modifiedBundles = Seq[Long]()
     // map for directory bundles: bundle id -> map(file in directory, modification time).
     var monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]] = null
-    while (ApplicationLauncher.development.get() || code == ApplicationLauncher.ReturnCode.RESTART) {
+    while (ApplicationLauncher.developmentFlag(framework).get() || code == ApplicationLauncher.ReturnCode.RESTART) {
       forceReload = false // at the beginning we don't want to reload bundles
       modifiedBundles = Seq() // at the beginning we haven't any expired or modified bundles
       if (monitor == null) {
@@ -283,10 +283,12 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
               log.error("Digi application halted: " + e.getMessage, e)
               Thread.sleep(1000)
           }
-        } else
-          ApplicationLauncher.development.synchronized { ApplicationLauncher.development.wait() }
+        } else {
+          val development = ApplicationLauncher.developmentFlag(framework)
+          development.synchronized { development.wait() }
+        }
       }
-      if (ApplicationLauncher.development.get()) {
+      if (ApplicationLauncher.developmentFlag(framework).get()) {
         // We are in development mode
         dev.getOrElse(Seq()) match {
           case Nil ⇒
@@ -390,7 +392,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       // blocks and runs the application on the current thread.  This method
       // will return only after the application has stopped.
       appLauncher.start(null)
-      while (ApplicationLauncher.development.get) {
+      while (ApplicationLauncher.developmentFlag(framework).get) {
         // A. org.eclipse.e4.ui.workbench.swt.util.BindingProcessingAddon
         // never use 'dispose' method
         //
@@ -438,7 +440,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         // We are not interested in monitor: We have an explicit bundle list.
         log.debug("Development mode. Skip monitor initialization.")
         return immutable.HashMap()
-      case None if !ApplicationLauncher.development.get ⇒
+      case None if !ApplicationLauncher.developmentFlag(framework).get ⇒
         // We are not interested in monitor: development mode disabled.
         log.debug("Production mode. Skip monitor initialization.")
         return immutable.HashMap()
@@ -762,37 +764,47 @@ object ApplicationLauncher extends Loggable {
   private lazy val initialized = new AtomicBoolean(false)
   /** Flag indicating whether the application is already running. */
   private lazy val running = new AtomicBoolean(false)
-  /** Flag indicating whether the application in development. */
-  private lazy val development = new AtomicBoolean(false)
   /** Flag indicating whether the Digi application is active. */
   private lazy val digiApp = new AtomicBoolean(false)
 
-  /** Get main SWT/Launcher thread */
+  /** Get main SWT/Launcher thread. */
   def getMainThread() = applicationThread
-  /** Enable development mode */
+  /** Get development mode flag. */
+  def developmentFlag(framework: osgi.Framework): AtomicBoolean =
+    framework.getClass().getClassLoader().asInstanceOf[{ val developmentMode: AtomicBoolean }].developmentMode
+  /** Enable development mode. */
   @log
-  def developmentOn(): Boolean = development.synchronized {
-    if (development.compareAndSet(false, true)) {
-      log.info("Development mode enabled")
-      development.notifyAll()
-      true
-    } else false
-  }
-  /** Disable development mode */
+  def developmentOn(): Boolean = applicationFramework.map { framework ⇒
+    val development = developmentFlag(framework)
+    development.synchronized {
+      if (development.compareAndSet(false, true)) {
+        log.info("Development mode enabled")
+        development.notifyAll()
+        true
+      } else false
+    }
+  }.getOrElse(false)
+  /** Disable development mode. */
   @log
-  def developmentOff(): Boolean = development.synchronized {
-    if (development.compareAndSet(true, false)) {
-      log.info("Development mode enabled")
-      development.notifyAll()
-      true
-    } else false
-  }
-  /** Start Digi application */
+  def developmentOff(): Boolean = applicationFramework.map { framework ⇒
+    val development = developmentFlag(framework)
+    development.synchronized {
+      if (development.compareAndSet(true, false)) {
+        log.info("Development mode disabled")
+        development.notifyAll()
+        true
+      } else false
+    }
+  }.getOrElse(false)
+  /** Start Digi application. */
   @log
   def digiStart(): Boolean = synchronized {
     if (digiApp.compareAndSet(false, true)) {
-      development.synchronized { development.notifyAll() }
-      true
+      applicationFramework.map { framework ⇒
+        val development = developmentFlag(framework)
+        development.synchronized { development.notifyAll() }
+        true
+      }.getOrElse(false)
     } else
       false
   }
@@ -824,18 +836,18 @@ object ApplicationLauncher extends Loggable {
   }
 
   case class InitialBundle(
-    /** Original representation */
+    /** Original representation. */
     val originalString: String,
-    /** Relative path */
+    /** Relative path. */
     val locationString: String,
-    /** Full path */
+    /** Full path. */
     val location: URL,
     val name: String,
-    /** Start level */
+    /** Start level. */
     val level: Int,
-    /** Start flag */
+    /** Start flag. */
     val start: Boolean)
-  /** Redirects the platform debug output to the application logger */
+  /** Redirects the platform debug output to the application logger. */
   class DebugLogRedirector extends Runnable {
     val ready = new CountDownLatch(1)
     /** These variables are accessed only from this thread. */
@@ -858,7 +870,7 @@ object ApplicationLauncher extends Loggable {
       ready.countDown()
       readDebugInformation()
     }
-    /** Redirect the input stream to the launcher logger */
+    /** Redirect the input stream to the launcher logger. */
     protected def readDebugInformation() = try {
       val in = new BufferedReader(new InputStreamReader(debugInputStream))
       var line: String = null

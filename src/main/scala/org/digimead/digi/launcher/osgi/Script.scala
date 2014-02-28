@@ -28,11 +28,12 @@ import java.net.URLClassLoader
 import java.security.MessageDigest
 import java.util.jar.JarFile
 import scala.collection.mutable
+import scala.language.reflectiveCalls
 import scala.reflect.internal.util.{ BatchSourceFile, Position }
-import scala.tools.nsc.{ Global, Settings }
 import scala.tools.nsc.interpreter.AbstractFileClassLoader
 import scala.tools.nsc.io.VirtualDirectory
 import scala.tools.nsc.reporters.AbstractReporter
+import scala.tools.nsc.{ Global, Settings }
 
 /**
  * Evaluates files, strings, or input streams as Scala code, and returns the result.

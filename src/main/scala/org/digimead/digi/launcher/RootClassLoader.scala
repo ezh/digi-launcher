@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -20,10 +20,8 @@
 
 package org.digimead.digi.launcher
 
-import java.net.URL
-import java.net.URLClassLoader
-import java.net.URLStreamHandlerFactory
-
+import java.net.{ URL, URLClassLoader, URLStreamHandlerFactory }
+import java.util.concurrent.atomic.AtomicBoolean
 import org.digimead.digi.lib.log.api.Loggable
 
 /**
@@ -37,7 +35,9 @@ class RootClassLoader(
   /** The URLStreamHandlerFactory to use when creating URLs. */
   val factory: URLStreamHandlerFactory,
   /** The boot delegation class loader for custom delegation expression */
-  val delegationLoader: ClassLoader)
+  val delegationLoader: ClassLoader,
+  /** Flag indicating whether the application in development mode. */
+  val developmentMode: AtomicBoolean)
   extends URLClassLoader(urls, parent, factory) with RootClassLoader.Interface with Loggable {
   /** List of regular expressions with propagated entities from this class loader to OSGi. */
   @volatile protected var bootDelegations = Set[String]()
@@ -76,7 +76,7 @@ class RootClassLoader(
         if (name.matches(iterator.next)) try {
           return delegationLoader.loadClass(name)
         } catch {
-          case _: ClassNotFoundException =>
+          case _: ClassNotFoundException ⇒
         }
     }
     // Try to load from parent loader.
@@ -84,13 +84,13 @@ class RootClassLoader(
       if (parent != null)
         return parent.loadClass(name)
     } catch {
-      case _: ClassNotFoundException =>
+      case _: ClassNotFoundException ⇒
     }
     // Try to load from this loader.
     try {
       return super.loadClass(name, resolve)
     } catch {
-      case _: ClassNotFoundException =>
+      case _: ClassNotFoundException ⇒
     }
 
     throw new ClassNotFoundException(name)
