@@ -22,18 +22,11 @@ package org.digimead.digi.lib
 
 import org.digimead.digi.lib.log.api.Loggable
 import org.digimead.lib.test.LoggingHelper
-import org.scalatest.WordSpec
-import org.scalatest.Matchers
+import org.scalatest.{ Matchers, WordSpec }
 import org.scalatest.mock.MockitoSugar
 
 class SimpleSpec extends WordSpec with LoggingHelper with Matchers with MockitoSugar with Loggable {
-  after {
-    adjustLoggingAfter
-  }
-  before {
-    DependencyInjection(org.digimead.digi.lib.default, false)
-    adjustLoggingBefore
-  }
+  before { DependencyInjection(org.digimead.digi.lib.default, false) }
 
   "stub" must {
     "running" in {
