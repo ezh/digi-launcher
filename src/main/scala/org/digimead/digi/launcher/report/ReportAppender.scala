@@ -33,7 +33,7 @@ import org.digimead.digi.lib.log.Logging.Logging2implementation
 import org.digimead.digi.lib.log.api.Message
 import org.digimead.digi.lib.log.api.Appender
 
-// Write your own appender or submit at issue report if you want to change this to something expendable
+// Write your own appender or submit at issue report if you want to change this to something extendable.
 /**
  * Report appender
  */
@@ -69,7 +69,10 @@ object ReportAppender extends Appender {
             r.throwable.foreach { t ⇒
               output.println()
               try {
-                t.printStackTrace(output)
+                if (DI.fullStackTrace)
+                  output.println(getFullStackTrace(t))
+                else
+                  t.printStackTrace(output)
               } catch {
                 case e: Throwable ⇒
                   output.append("\nstack trace \"" + t.getMessage + "\" unaviable")
@@ -107,6 +110,37 @@ object ReportAppender extends Appender {
     try { output.foreach(_.flush) } catch { case e: Throwable ⇒ }
   }
 
+  private def getFullStackTrace(t: Throwable): String = {
+    val b = new StringBuilder()
+
+    def appendStackTrace(t: Throwable, first: Boolean) {
+      def appendElement(e: StackTraceElement) {
+        b.append("\tat ")
+        b.append(e)
+        b.append('\n')
+      }
+
+      if (!first)
+        b.append("Caused by: ")
+      b.append(t)
+      b.append('\n')
+
+      val els = t.getStackTrace()
+      var i = 0
+      while ((i < els.size)) {
+        appendElement(els(i))
+        i += 1
+      }
+    }
+
+    appendStackTrace(t, true)
+    var c = t
+    while (c.getCause() != null) {
+      c = c.getCause()
+      appendStackTrace(c, false)
+    }
+    b.toString()
+  }
   private def getLogFileName() =
     Report.filePrefix + "." + Report.logFileExtensionPrefix + Report.logFileExtension
   /** Close and compress the previous log file, prepare and open new one */
@@ -160,5 +194,7 @@ object ReportAppender extends Appender {
     lazy val fileLimit: Int = injectOptional[Int]("Report.LogFileSize") getOrElse 409600 * 3 // 1.5Mb or ~100kb compressed
     /** Check for size every N lines. */
     lazy val checkEveryNLines = injectOptional[Int]("Report.LogCheckNLines") getOrElse 1000
+    /** Generate full stack trace reports. */
+    lazy val fullStackTrace = injectOptional[Boolean]("Report.FullStackTrace") getOrElse true
   }
 }
