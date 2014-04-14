@@ -49,9 +49,9 @@ inConfig(OSGiConf)({
   )
 })
 
-crossScalaVersions := Seq("2.10.3")
+crossScalaVersions := Seq("2.10.4")
 
-scalaVersion := "2.10.3"
+scalaVersion := "2.10.4"
 
 scalacOptions ++= Seq("-encoding", "UTF-8", "-deprecation", "-unchecked", "-Xcheckinit", "-feature") ++
   (if (true || (System getProperty "java.runtime.version" startsWith "1.7")) Seq() else Seq("-optimize")) // -optimize fails with jdk7
@@ -68,9 +68,9 @@ if (sys.env.contains("XBOOTCLASSPATH")) Seq(javacOptions += "-Xbootclasspath:" +
 resolvers += "digimead-maven" at "http://storage.googleapis.com/maven.repository.digimead.org/"
 
 libraryDependencies ++= Seq(
-    "org.scala-lang" % "scala-compiler" % "2.10.3",
-    "org.digimead" %% "digi-lib" % "0.2.3.4-SNAPSHOT",
-    "org.digimead" %% "digi-lib-test" % "0.2.2.4-SNAPSHOT" % "test",
+    "org.scala-lang" % "scala-compiler" % "2.10.4",
+    "org.digimead" %% "digi-lib" % "0.2.3.5-SNAPSHOT",
+    "org.digimead" %% "digi-lib-test" % "0.2.2.5-SNAPSHOT" % "test",
     "org.eclipse" % "org.eclipse.osgi" % "3.8.0.v20120529-1548",
     "org.osgi" % "org.osgi.core" % "5.0.0",
     "org.osgi" % "org.osgi.compendium" % "4.3.1"
