@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -22,7 +22,7 @@ package org.digimead.digi.launcher.osgi
 
 import java.util.concurrent.atomic.AtomicBoolean
 
-import org.digimead.digi.lib.log.api.Loggable
+import org.digimead.digi.lib.log.api.XLoggable
 import org.eclipse.osgi.framework.adaptor.FrameworkAdaptor
 import org.eclipse.osgi.framework.internal.core.{ Constants => EConstants }
 import org.eclipse.osgi.framework.internal.core.FrameworkProperties
@@ -141,7 +141,7 @@ class Framework(val frameworkAdaptor: FrameworkAdaptor)
   }
 }
 
-object Framework extends Loggable {
+object Framework extends XLoggable {
   val FILE_SCHEME = "file:"
   val INITIAL_LOCATION = "initial@"
   val PROP_ALLOW_APPRELAUNCH = "eclipse.allowAppRelaunch"

@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -24,20 +24,22 @@ import com.escalatesoft.subcut.inject.{ BindingModule, Injectable }
 import java.io.{ BufferedInputStream, BufferedOutputStream, BufferedWriter, File, FileInputStream, FileOutputStream, FileWriter, FilenameFilter, InputStream, OutputStream, PrintWriter, StringWriter }
 import java.lang.management.ManagementFactory
 import java.text.{ DateFormat, SimpleDateFormat }
-import java.util.{ Date, Properties }
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import java.util.zip.GZIPOutputStream
+import java.util.{ Date, Properties }
+import org.digimead.digi.launcher.report.api.XReport
 import org.digimead.digi.lib.aop.log
-import org.digimead.digi.lib.api.DependencyInjection
-import org.digimead.digi.lib.log.api.{ Event, Level, Loggable }
+import org.digimead.digi.lib.api.XDependencyInjection
+import org.digimead.digi.lib.log.api.XLogging
+import org.digimead.digi.lib.log.api.{ XEvent, XLevel, XLoggable }
 import scala.annotation.tailrec
 import scala.collection.JavaConversions.enumerationAsScalaIterator
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.language.implicitConversions
 
-class Report(implicit val bindingModule: BindingModule) extends api.Report with Injectable with Loggable {
+class Report(implicit val bindingModule: BindingModule) extends XReport with Injectable with XLoggable {
   /** Flag indicating whether stack trace generation enabled. */
   val allowGenerateStackTrace = injectOptional[Boolean]("Report.TraceFileEnabled") getOrElse true
   /** Copy buffer size. */
@@ -235,12 +237,12 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
       throw new IllegalArgumentException(s"Listener ${listener} is already registered.")
   }
   /** Rotate log files. */
-  def rotate() = synchronized { org.digimead.digi.lib.log.api.Logging.rotate }
+  def rotate() = synchronized { XLogging.rotate }
   /** Start reporter log intercepter and application service. */
   @log
   def start() {
     log.info("Start reporter.")
-    Event.subscribe(LogSubscriber)
+    XEvent.subscribe(LogSubscriber)
     try {
       if (!path.exists())
         if (!path.mkdirs()) {
@@ -259,7 +261,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
   def stop() {
     log.info("Stop reporter.")
     Report.active = false
-    Event.removeSubscription(LogSubscriber)
+    XEvent.removeSubscription(LogSubscriber)
   }
   /** Unregister listener of outgoing log events. */
   @log
@@ -271,7 +273,7 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
   }
 
   /** Returns general information about application */
-  protected def getInfo(): api.Report.Info = {
+  protected def getInfo(): XReport.Info = {
     // Get components information if any.
     val versionProperties = getClass.getClassLoader.getResources("version.properties")
     val components = for (resURL ← versionProperties) yield try {
@@ -283,9 +285,9 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
         Option(properties.getProperty("build")) match {
           case Some(rawBuild) ⇒
             val date = try { new Date(rawBuild.toLong * 1000) } catch { case e: Throwable ⇒ new Date(0) }
-            api.Report.Component(name, version, date, rawBuild, bundleSymbolicName)
+            XReport.Component(name, version, date, rawBuild, bundleSymbolicName)
           case None ⇒
-            api.Report.Component(name, version, new Date(0), "0", bundleSymbolicName)
+            XReport.Component(name, version, new Date(0), "0", bundleSymbolicName)
         }
       }
     } catch {
@@ -303,14 +305,14 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
         log.error(e.getMessage(), e)
         None
     }
-    api.Report.Info(components.flatten.toSeq, Option(System.getProperty("os.name")).getOrElse("UNKNOWN"),
+    XReport.Info(components.flatten.toSeq, Option(System.getProperty("os.name")).getOrElse("UNKNOWN"),
       Option(System.getProperty("os.arch")).getOrElse("UNKNOWN"), platform.map(_.toString()).getOrElse("UNKNOWN"))
   }
   /**
    * Build sequence of files to delete
    * @return keep suffixes, files to delete
    */
-  private def toClean(dir: File, keep: Seq[String]): (Seq[String], Seq[File]) = try {
+  private def toClean(dir: File, keep: Seq[String]): (Seq[String], Seq[File]) = {
     var result: Seq[File] = Seq()
     val files = Option(dir.listFiles()).getOrElse(Array[File]()).map(f ⇒ f.getName.toLowerCase -> f)
     val traceFiles = files.filter(_._1.endsWith(traceFileExtension)).sortBy(_._1).reverse
@@ -376,12 +378,12 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
     read()
   } finally { if (close) in.close }
 
-  object LogSubscriber extends Event.Sub {
+  object LogSubscriber extends XEvent.Sub {
     val lock = new ReentrantLock
-    def notify(pub: Event.Pub, event: Event) = if (!lock.isLocked()) {
+    def notify(pub: XEvent.Pub, event: XEvent) = if (!lock.isLocked()) {
       event match {
-        case event: Event.Outgoing ⇒
-          if (event.record.throwable.nonEmpty && event.record.level == Level.Error) {
+        case event: XEvent.Outgoing ⇒
+          if (event.record.throwable.nonEmpty && event.record.level == XLevel.Error) {
             Future {
               if (lock.tryLock()) try {
                 if (allowGenerateStackTrace)
@@ -401,8 +403,8 @@ class Report(implicit val bindingModule: BindingModule) extends api.Report with 
   }
 }
 
-object Report extends Loggable {
-  implicit def report2implementation(r: Report.type): api.Report = r.inner
+object Report extends XLoggable {
+  implicit def report2implementation(r: Report.type): XReport = r.inner
   @volatile private var active: Boolean = false
 
   /** Returns string representation of the specific date. */
@@ -413,10 +415,10 @@ object Report extends Loggable {
   /**
    * Dependency injection routines
    */
-  private object DI extends DependencyInjection.PersistentInjectable {
+  private object DI extends XDependencyInjection.PersistentInjectable {
     /** Date representation format. */
     val df = injectOptional[DateFormat]("Report.DateFormat") getOrElse new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSZ")
     /** Report implementation */
-    val implementation = injectOptional[api.Report] getOrElse new Report
+    val implementation = injectOptional[XReport] getOrElse new Report
   }
 }

@@ -143,7 +143,7 @@ class Script() {
   /*
    * For a given FQ classname, trick the resource finder into telling us the containing jar.
    */
-  private def classPathOfClass(className: String) = try {
+  private def classPathOfClass(className: String) = {
     val resource = className.split('.').mkString("/", "/", ".class")
     val path = getClass.getResource(resource).getPath
     if (path.indexOf("file:") >= 0) {

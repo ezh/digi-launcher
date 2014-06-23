@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -20,34 +20,30 @@
 
 package org.digimead.digi.launcher.osgi
 
-import java.io.File
-import java.io.IOException
-import java.net.MalformedURLException
-import java.net.URL
+import java.io.{ File, IOException }
+import java.net.{ MalformedURLException, URL }
 import java.util.StringTokenizer
-
-import scala.collection.mutable
-import scala.util.control.Breaks._
-
 import org.digimead.digi.lib.aop.log
-import org.digimead.digi.lib.log.api.Loggable
+import org.digimead.digi.lib.log.api.XLoggable
 import org.eclipse.core.runtime.adaptor.EclipseStarter
 import org.eclipse.core.runtime.internal.adaptor.LocationHelper
 import org.eclipse.osgi.framework.internal.core.FrameworkProperties
 import org.osgi.framework.Bundle
+import scala.collection.mutable
+import scala.util.control.Breaks.{ break, breakable }
 
 /**
  * Helper routines that contain bundle location logic.
  */
-class SupportBundleLocator extends Loggable {
+class SupportBundleLocator extends XLoggable {
   def getBundleByLocation(location: String, bundles: Array[Bundle]): Option[Bundle] =
-    bundles.find(bundle => location.equalsIgnoreCase(bundle.getLocation()))
+    bundles.find(bundle ⇒ location.equalsIgnoreCase(bundle.getLocation()))
   /** Get the path where the OSGi Framework implementation is located. */
   @log
   def getSysPath(): String = Option(FrameworkProperties.getProperty(EclipseStarter.PROP_SYSPATH)) match {
-    case Some(path) =>
+    case Some(path) ⇒
       path
-    case None =>
+    case None ⇒
       val path = getSysPathFromURL(FrameworkProperties.getProperty(EclipseStarter.PROP_FRAMEWORK)) orElse
         getSysPathFromCodeSource() getOrElse {
           throw new IllegalStateException("Can not find the system path."); //$NON-NLS-1$
@@ -63,22 +59,22 @@ class SupportBundleLocator extends Loggable {
   }
   /** Get the path where the OSGi Framework implementation is located. */
   @log
-  def getSysPathFromURL(urlSpec: String): Option[String] = Option(urlSpec) flatMap (urlSpec =>
-    Option(LocationHelper.buildURL(urlSpec, false)) map (url =>
+  def getSysPathFromURL(urlSpec: String): Option[String] = Option(urlSpec) flatMap (urlSpec ⇒
+    Option(LocationHelper.buildURL(urlSpec, false)) map (url ⇒
       new File(url.getFile()).getCanonicalFile().getParentFile().getAbsolutePath()))
   /** Get the path where the OSGi Framework implementation is located. */
   @log
-  def getSysPathFromCodeSource(): Option[String] = Option(classOf[EclipseStarter].getProtectionDomain()) flatMap (pd =>
-    Option(pd.getCodeSource()) flatMap (cs =>
-      Option(cs.getLocation()) map { url =>
+  def getSysPathFromCodeSource(): Option[String] = Option(classOf[EclipseStarter].getProtectionDomain()) flatMap (pd ⇒
+    Option(pd.getCodeSource()) flatMap (cs ⇒
+      Option(cs.getLocation()) map { url ⇒
         url.getFile() match {
-          case url if url.endsWith(".jar") =>
+          case url if url.endsWith(".jar") ⇒
             val result = url.substring(0, url.lastIndexOf('/'))
             if ("folder".equals(FrameworkProperties.getProperty(EclipseStarter.PROP_FRAMEWORK_SHAPE))) //$NON-NLS-1$
               result.substring(0, result.lastIndexOf('/'))
             else
               url
-          case url =>
+          case url ⇒
             // really shit. and no comments from originator
             val result = if (url.endsWith("/")) url.substring(0, url.length() - 1) else url
             val result1 = result.substring(0, result.lastIndexOf('/'))
@@ -98,7 +94,7 @@ class SupportBundleLocator extends Loggable {
       new URL(name)
       url = new URL(new File(parent).toURI().toURL(), name)
     } catch {
-      case e: MalformedURLException =>
+      case e: MalformedURLException ⇒
         // TODO this is legacy support for non-URL names.  It should be removed eventually.
         // if name was not a URL then construct one.
         // Assume it should be a reference and that it is relative.  This support need not
@@ -131,9 +127,9 @@ class SupportBundleLocator extends Loggable {
     // reconstruct the answer.
     if (reference) {
       searchFor(fileLocation.getName(), new File(fileLocation.getParent()).getAbsolutePath(), searchCandidates) match {
-        case Some(result) =>
+        case Some(result) ⇒
           url = new URL(Framework.REFERENCE_PROTOCOL, null, Framework.FILE_SCHEME + result)
-        case None =>
+        case None ⇒
           return null
       }
     }
@@ -143,7 +139,7 @@ class SupportBundleLocator extends Loggable {
       result.connect()
       return url
     } catch {
-      case e: IOException =>
+      case e: IOException ⇒
         return null
     }
   }
@@ -185,14 +181,14 @@ class SupportBundleLocator extends Loggable {
     var result = Array[AnyRef](new Integer(-1), new Integer(-1), new Integer(-1), "")
     val t = new StringTokenizer(version, ".")
     var token = ""
-    for (i <- 0 until 4 if t.hasMoreTokens()) {
+    for (i ← 0 until 4 if t.hasMoreTokens()) {
       token = t.nextToken()
       if (i < 3) {
         // major, minor or service ... numeric values
         try {
           result(i) = new Integer(token)
         } catch {
-          case e: Exception =>
+          case e: Exception ⇒
             if (i == 0)
               return null // return null if no valid numbers are present
           // invalid number format - use default numbers (-1) for the rest
@@ -215,9 +211,9 @@ class SupportBundleLocator extends Loggable {
    */
   protected def searchFor(target: String, start: String, searchCandidates: mutable.HashMap[String, Array[String]]): Option[String] = {
     val candidates = searchCandidates.get(start) match {
-      case Some(candidates) =>
+      case Some(candidates) ⇒
         candidates
-      case None =>
+      case None ⇒
         var startFile = new File(start)
         // Pre-check if file exists, if not, and it contains escape characters,
         // try decoding the path
@@ -238,7 +234,7 @@ class SupportBundleLocator extends Loggable {
     var maxVersion: Array[AnyRef] = null
     var resultIsFile = false
     breakable {
-      for (candidateName <- candidates) {
+      for (candidateName ← candidates) {
         if (candidateName.startsWith(target)) breakable {
           var simpleJar = false
           val versionSep = if (candidateName.length() > target.length()) candidateName.charAt(target.length()) else 0

@@ -42,9 +42,9 @@ import scala.collection.immutable
 import scala.collection.mutable
 
 import org.digimead.digi.launcher.report.ReportAppender
-import org.digimead.digi.launcher.report.api.Report
+import org.digimead.digi.launcher.report.api.XReport
 import org.digimead.digi.lib.aop.log
-import org.digimead.digi.lib.log.api.Loggable
+import org.digimead.digi.lib.log.api.XLoggable
 import org.eclipse.core.runtime.adaptor.EclipseStarter
 import org.eclipse.core.runtime.adaptor.LocationManager
 import org.eclipse.core.runtime.internal.adaptor.EclipseAdaptorMsg
@@ -69,7 +69,7 @@ import language.reflectiveCalls
  * Application launcher spawned from RootClassLoader.
  */
 class ApplicationLauncher(implicit val bindingModule: BindingModule)
-  extends Loggable with Injectable with Runnable {
+  extends XLoggable with Injectable with Runnable {
   checkBeforeInitialization
 
   //
@@ -157,9 +157,9 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   /** Location of script with DI settings. */
   @volatile protected var applicationDIScript: Option[File] = None
   /** Report instance from non OSGi world. */
-  @volatile protected var report: Option[Report] = None
+  @volatile protected var report: Option[XReport] = None
   /** Report service registration. */
-  @volatile protected var reportRegistration: Option[ServiceRegistration[Report]] = None
+  @volatile protected var reportRegistration: Option[ServiceRegistration[XReport]] = None
 
   checkAfterInitialization
   // IMPORTANT.
@@ -178,7 +178,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   }
   /** Prepare OSGi framework settings. */
   @log
-  def initialize(applicationDIScript: Option[File], report: Report) =
+  def initialize(applicationDIScript: Option[File], report: XReport) =
     if (ApplicationLauncher.initialized.compareAndSet(false, true)) {
       if (ApplicationLauncher.running.get)
         throw new IllegalStateException(EclipseAdaptorMsg.ECLIPSE_STARTUP_ALREADY_RUNNING)
@@ -449,15 +449,13 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     }
     val context = framework.getSystemBundleContext()
     val entries = context.getBundles().map { bundle ⇒
-      try {
-        val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
-        if (location.isDirectory()) {
-          log.debug(s"Development mode. Add ${bundle.getSymbolicName()} to monitor.")
-          Some(bundle.getBundleId() -> immutable.HashMap(
-            recursiveListFiles(location).map(file ⇒ (file, file.lastModified())): _*))
-        } else
-          None
-      }
+      val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
+      if (location.isDirectory()) {
+        log.debug(s"Development mode. Add ${bundle.getSymbolicName()} to monitor.")
+        Some(bundle.getBundleId() -> immutable.HashMap(
+          recursiveListFiles(location).map(file ⇒ (file, file.lastModified())): _*))
+      } else
+        None
     }
     immutable.HashMap(entries.flatten: _*)
   }
@@ -586,7 +584,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   def reportStart(context: BundleContext) = report.foreach { report ⇒
     report.asInstanceOf[{ def start() }].start()
     // Start "report" service
-    reportRegistration = Option(context.registerService(classOf[Report], report, null))
+    reportRegistration = Option(context.registerService(classOf[XReport], report, null))
     reportRegistration match {
       case Some(service) ⇒ log.debug("Register launcher report service as: " + service)
       case None ⇒ log.error("Unable to register launcher report service.")
@@ -605,7 +603,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   }
   /** Run OSGi framework and application. */
   @log
-  protected def run() = try {
+  protected def run() = {
     log.info("Start application.")
     if (!ApplicationLauncher.initialized.get)
       throw new IllegalStateException("Platform is not initialized")
@@ -756,7 +754,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   }
 }
 
-object ApplicationLauncher extends Loggable {
+object ApplicationLauncher extends XLoggable {
   @volatile private var applicationThread: Option[Thread] = None
   @volatile private var applicationFramework: Option[osgi.Framework] = None
   @volatile private var digiMainService: Option[String] = None

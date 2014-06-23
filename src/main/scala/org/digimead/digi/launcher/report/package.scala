@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -20,25 +20,23 @@
 
 package org.digimead.digi.launcher
 
+import com.escalatesoft.subcut.inject.NewBindingModule
+import org.digimead.digi.launcher.report.api.XReport
+import org.digimead.digi.launcher.report.{ Report, ReportAppender }
+import org.digimead.digi.lib.DependencyInjection
+import org.digimead.digi.lib.log.api.XAppender
+import org.digimead.digi.lib.log.appender.Console
 import scala.collection.immutable
 
-import org.digimead.digi.launcher.report.Report
-import org.digimead.digi.launcher.report.ReportAppender
-import org.digimead.digi.lib.DependencyInjection
-import org.digimead.digi.lib.log.api.Appender
-import org.digimead.digi.lib.log.appender.Console
-
-import com.escalatesoft.subcut.inject.NewBindingModule
-
 package object report {
-  lazy val default = new NewBindingModule(module => {
-    module.bind[org.digimead.digi.launcher.report.api.Report] toModuleSingle { implicit module => new Report }
+  lazy val default = new NewBindingModule(module ⇒ {
+    module.bind[XReport] toModuleSingle { implicit module ⇒ new Report }
     module.bind[Boolean] identifiedBy "Report.TraceFileEnabled" toSingle { true }
     module.bind[Int] identifiedBy "Report.KeepLogFiles" toSingle { 4 }
     module.bind[Int] identifiedBy "Report.KeepTrcFiles" toSingle { 8 }
     module.bind[String] identifiedBy "Report.LogFileExtension" toSingle { "log" }
     module.bind[String] identifiedBy "Report.TraceFileExtension" toSingle { "trc" }
-    module.bind[immutable.HashSet[Appender]] identifiedBy "Log.BufferedAppenders" toSingle { immutable.HashSet[Appender](Console, ReportAppender) }
+    module.bind[immutable.HashSet[XAppender]] identifiedBy "Log.BufferedAppenders" toSingle { immutable.HashSet[XAppender](Console, ReportAppender) }
   })
   DependencyInjection.setPersistentInjectable("org.digimead.digi.launcher.report.Report$DI$")
 }

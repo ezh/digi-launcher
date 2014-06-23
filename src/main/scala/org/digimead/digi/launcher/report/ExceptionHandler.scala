@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -21,10 +21,9 @@
 package org.digimead.digi.launcher.report
 
 import java.lang.Thread.UncaughtExceptionHandler
+import org.digimead.digi.lib.log.api.XLoggable
 
-import org.digimead.digi.lib.log.api.Loggable
-
-class ExceptionHandler extends Loggable {
+class ExceptionHandler extends XLoggable {
   ExceptionHandler // initiate lazy initialization
 
   def register() {
@@ -42,20 +41,20 @@ class ExceptionHandler extends Loggable {
   }
 }
 
-object ExceptionHandler extends Loggable {
+object ExceptionHandler extends XLoggable {
   @annotation.tailrec
-  def retry[T](n: Int, timeout: Int = -1)(fn: => T): T = {
-    val r = try { Some(fn) } catch { case e: Exception if n > 1 => None }
+  def retry[T](n: Int, timeout: Int = -1)(fn: ⇒ T): T = {
+    val r = try { Some(fn) } catch { case e: Exception if n > 1 ⇒ None }
     r match {
-      case Some(x) => x
-      case None =>
+      case Some(x) ⇒ x
+      case None ⇒
         if (timeout >= 0) Thread.sleep(timeout)
         log.warn("retry #" + (n - (n - 1)))
         retry(n - 1, timeout)(fn)
     }
   }
 
-  class Default(val defaultExceptionHandler: Option[UncaughtExceptionHandler]) extends UncaughtExceptionHandler with Loggable {
+  class Default(val defaultExceptionHandler: Option[UncaughtExceptionHandler]) extends UncaughtExceptionHandler with XLoggable {
     // Default exception handler
     def uncaughtException(t: Thread, e: Throwable) {
       log.error("Unhandled exception in %s: %s".format(t, e), e)
@@ -64,7 +63,7 @@ object ExceptionHandler extends Loggable {
         defaultExceptionHandler.foreach(_.uncaughtException(t, e))
       } catch {
         // catch all exceptions
-        case e: Throwable =>
+        case e: Throwable ⇒
       }
     }
   }

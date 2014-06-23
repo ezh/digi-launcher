@@ -22,7 +22,7 @@ package org.digimead.digi.launcher
 
 import java.net.{ URL, URLClassLoader, URLStreamHandlerFactory }
 import java.util.concurrent.atomic.AtomicBoolean
-import org.digimead.digi.lib.log.api.Loggable
+import org.digimead.digi.lib.log.api.XLoggable
 
 /**
  * Standard parent-first class loader with additional search over delegationLoader
@@ -38,7 +38,7 @@ class RootClassLoader(
   val delegationLoader: ClassLoader,
   /** Flag indicating whether the application in development mode. */
   val developmentMode: AtomicBoolean)
-  extends URLClassLoader(urls, parent, factory) with RootClassLoader.Interface with Loggable {
+  extends URLClassLoader(urls, parent, factory) with RootClassLoader.Interface with XLoggable {
   /** List of regular expressions with propagated entities from this class loader to OSGi. */
   @volatile protected var bootDelegations = Set[String]()
 

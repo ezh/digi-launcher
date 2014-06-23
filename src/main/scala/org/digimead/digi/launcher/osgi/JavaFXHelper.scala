@@ -24,7 +24,7 @@ import java.io.File
 import java.net.{ URL, URLClassLoader }
 import java.security.ProtectionDomain
 import java.util.ArrayList
-import org.digimead.digi.lib.log.api.Loggable
+import org.digimead.digi.lib.log.api.XLoggable
 import org.eclipse.osgi.baseadaptor.{ BaseData, HookConfigurator, HookRegistry }
 import org.eclipse.osgi.baseadaptor.bundlefile.BundleEntry
 import org.eclipse.osgi.baseadaptor.hooks.ClassLoadingHook
@@ -35,7 +35,7 @@ import org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader
 /**
  * Hook that attach JavaFX library to SWT bundle
  */
-class JavaFXHelper(library: File) extends ClassLoadingHook with Loggable {
+class JavaFXHelper(library: File) extends ClassLoadingHook with XLoggable {
   log.debug("Inject JavaFX OSGi Helper")
   /** URL class loader with jfxrt.jar */
   val rtLoader = new URLClassLoader(Array(library.getCanonicalFile().toURI().toURL()), null)
@@ -114,7 +114,7 @@ class JavaFXHelper(library: File) extends ClassLoadingHook with Loggable {
   def initializedClassLoader(baseClassLoader: BaseClassLoader, data: BaseData) {}
 }
 
-object JavaFXHelper extends Loggable {
+object JavaFXHelper extends XLoggable {
   /** Get JavaFX library. */
   def getJavaFXRT(): Option[File] = {
     val home = new File(System.getProperty("java.home"))

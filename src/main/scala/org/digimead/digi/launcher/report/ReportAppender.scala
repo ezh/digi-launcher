@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -20,24 +20,17 @@
 
 package org.digimead.digi.launcher.report
 
-import java.io.BufferedWriter
-import java.io.File
-import java.io.FileWriter
-import java.io.PrintWriter
-
-import org.digimead.digi.launcher.report.Report.report2implementation
+import java.io.{ BufferedWriter, File, FileWriter, PrintWriter }
 import org.digimead.digi.lib.aop.log
-import org.digimead.digi.lib.api.DependencyInjection
+import org.digimead.digi.lib.api.XDependencyInjection
 import org.digimead.digi.lib.log.Logging
-import org.digimead.digi.lib.log.Logging.Logging2implementation
-import org.digimead.digi.lib.log.api.Message
-import org.digimead.digi.lib.log.api.Appender
+import org.digimead.digi.lib.log.api.{ XAppender, XMessage }
 
 // Write your own appender or submit at issue report if you want to change this to something extendable.
 /**
  * Report appender
  */
-object ReportAppender extends Appender {
+object ReportAppender extends XAppender {
   @volatile private var file: Option[File] = None
   @volatile private var output: Option[PrintWriter] = None
   /** Counter that limits log file size */
@@ -45,9 +38,9 @@ object ReportAppender extends Appender {
   /** Counter that prevents clean() operation */
   @volatile private var counter2 = 0
   /** Appender filter */
-  @volatile private var filter: Message ⇒ Boolean = (record) ⇒ true
+  @volatile private var filter: XMessage ⇒ Boolean = (record) ⇒ true
 
-  protected var f = (records: Array[Message]) ⇒ synchronized {
+  protected var f = (records: Array[XMessage]) ⇒ synchronized {
     // rotate
     for {
       output ← output
@@ -86,7 +79,7 @@ object ReportAppender extends Appender {
   }
 
   /** Change report appender singleton filter */
-  def apply(filter: Message ⇒ Boolean): ReportAppender.type = {
+  def apply(filter: XMessage ⇒ Boolean): ReportAppender.type = {
     this.filter = filter
     this
   }
@@ -189,7 +182,7 @@ object ReportAppender extends Appender {
   /**
    * Dependency injection routines.
    */
-  private object DI extends DependencyInjection.PersistentInjectable {
+  private object DI extends XDependencyInjection.PersistentInjectable {
     /** Log file size limit. */
     lazy val fileLimit: Int = injectOptional[Int]("Report.LogFileSize") getOrElse 409600 * 3 // 1.5Mb or ~100kb compressed
     /** Check for size every N lines. */

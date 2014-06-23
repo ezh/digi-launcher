@@ -23,9 +23,9 @@ package org.digimead.digi.launcher.report.api
 import java.io.File
 import java.util.Date
 
-trait Report {
+trait XReport {
   /** General information about application. */
-  val info: Report.Info
+  val info: XReport.Info
   /** Number of saved log files. */
   val keepLogFiles: Int
   /** Quantity of saved trace files. */
@@ -61,7 +61,7 @@ trait Report {
   def unregister(listener: Runnable)
 }
 
-object Report {
+object XReport {
   case class Info(val component: Seq[Component], val os: String, val arch: String, val platform: String)
   case class Component(val name: String, val version: String, val build: Date, val rawBuild: String, bundleSymbolicName: String)
 }

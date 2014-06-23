@@ -26,8 +26,8 @@ import java.net.URL
 import java.util.Properties
 import java.util.concurrent.atomic.AtomicLong
 import org.digimead.digi.lib.aop.log
-import org.digimead.digi.lib.api.DependencyInjection
-import org.digimead.digi.lib.log.api.Loggable
+import org.digimead.digi.lib.api.XDependencyInjection
+import org.digimead.digi.lib.log.api.XLoggable
 import org.eclipse.core.runtime.adaptor.{ EclipseStarter, LocationManager }
 import org.eclipse.core.runtime.internal.adaptor.{ EclipseAdaptorMsg, MessageHelper }
 import org.eclipse.osgi.framework.adaptor.FrameworkAdaptor
@@ -49,7 +49,7 @@ import scala.language.reflectiveCalls
 /**
  * Framework launcher that is used by Application launcher.
  */
-class FrameworkLauncher extends BundleListener with Loggable {
+class FrameworkLauncher extends BundleListener with XLoggable {
   /** Contains last bundle event. */
   lazy val lastBundleEvent = new AtomicLong()
   /** OSGi log bridge */
@@ -61,7 +61,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
   /** Dependency Injection service. */
   @volatile protected var dependencyInjectionService: Option[FrameworkLauncher.DependencyInjectionService] = None
   /** Dependency Injection service registration. */
-  @volatile protected var dependencyInjectionRegistration: Option[ServiceRegistration[DependencyInjection]] = None
+  @volatile protected var dependencyInjectionRegistration: Option[ServiceRegistration[XDependencyInjection]] = None
 
   /** Check OSGi framework launch. */
   @log
@@ -131,7 +131,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
             diSingletonInstance, di, java.lang.Boolean.FALSE)
           // Pass DI to service
           dependencyInjectionService = Some(new FrameworkLauncher.DependencyInjectionService(di, validator))
-          dependencyInjectionRegistration = Some(framework.getSystemBundleContext().registerService(classOf[DependencyInjection], dependencyInjectionService.get, null))
+          dependencyInjectionRegistration = Some(framework.getSystemBundleContext().registerService(classOf[XDependencyInjection], dependencyInjectionService.get, null))
         }
       }
       true
@@ -580,7 +580,7 @@ class FrameworkLauncher extends BundleListener with Loggable {
 
 object FrameworkLauncher {
   /** DI service that pass actual value to Digi-Lib activator */
-  class DependencyInjectionService(di: BindingModule, validator: Option[(Manifest[_], Option[String], Class[_]) ⇒ Boolean]) extends DependencyInjection {
+  class DependencyInjectionService(di: BindingModule, validator: Option[(Manifest[_], Option[String], Class[_]) ⇒ Boolean]) extends XDependencyInjection {
     /** Returns actual DI. From the user diScript, builder with special class loader. */
     def getDependencyInjection() = di
     /**
@@ -589,7 +589,7 @@ object FrameworkLauncher {
      */
     def getDependencyValidator(): Option[(Manifest[_], Option[String], Class[_]) ⇒ Boolean] = validator
   }
-  class OSGiLogBridge extends LogListener with ServiceTrackerCustomizer[LogReaderService, LogReaderService] with Loggable {
+  class OSGiLogBridge extends LogListener with ServiceTrackerCustomizer[LogReaderService, LogReaderService] with XLoggable {
     @volatile protected var context: Option[BundleContext] = None
     @volatile protected var logReaderTracker: Option[ServiceTracker[LogReaderService, LogReaderService]] = None
 

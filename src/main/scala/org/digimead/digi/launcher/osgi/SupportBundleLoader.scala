@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -20,28 +20,16 @@
 
 package org.digimead.digi.launcher.osgi
 
-import java.io.File
-import java.io.IOException
+import java.io.{ File, IOException }
 import java.net.URL
-
-import scala.Array.canBuildFrom
-import scala.Option.option2Iterable
-
 import org.digimead.digi.launcher.ApplicationLauncher
 import org.digimead.digi.lib.aop.log
-import org.digimead.digi.lib.log.api.Loggable
+import org.digimead.digi.lib.log.api.XLoggable
 import org.eclipse.core.runtime.adaptor.LocationManager
-import org.eclipse.core.runtime.internal.adaptor.EclipseAdaptorMsg
-import org.eclipse.core.runtime.internal.adaptor.Semaphore
-import org.eclipse.osgi.framework.adaptor.FilePath
-import org.eclipse.osgi.framework.adaptor.StatusException
+import org.eclipse.core.runtime.internal.adaptor.{ EclipseAdaptorMsg, Semaphore }
+import org.eclipse.osgi.framework.adaptor.{ FilePath, StatusException }
 import org.eclipse.osgi.util.NLS
-import org.osgi.framework.Bundle
-import org.osgi.framework.BundleEvent
-import org.osgi.framework.BundleException
-import org.osgi.framework.FrameworkEvent
-import org.osgi.framework.FrameworkListener
-import org.osgi.framework.SynchronousBundleListener
+import org.osgi.framework.{ Bundle, BundleEvent, BundleException, FrameworkEvent, FrameworkListener, SynchronousBundleListener }
 import org.osgi.service.packageadmin.PackageAdmin
 import org.osgi.service.startlevel.StartLevel
 import org.osgi.util.tracker.ServiceTracker
@@ -49,13 +37,13 @@ import org.osgi.util.tracker.ServiceTracker
 /**
  * Helper routines that contain OSGi loading logic.
  */
-class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends Loggable {
+class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends XLoggable {
   @log
   def ensureBundlesActive(bundles: Array[Bundle], framework: Framework) {
     val context = framework.getSystemBundleContext()
     var tracker: ServiceTracker[StartLevel, StartLevel] = null
     try {
-      for (bundle <- bundles) {
+      for (bundle ← bundles) {
         if (bundle.getState() != Bundle.ACTIVE) {
           if (bundle.getState() == Bundle.INSTALLED) {
             log.error(NLS.bind(EclipseAdaptorMsg.ECLIPSE_STARTUP_ERROR_BUNDLE_NOT_RESOLVED, bundle.getLocation()))
@@ -82,7 +70,7 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends Logg
     log.debug("Collect current bundles.")
     val installed = framework.getSystemBundleContext().getBundles()
     var initial = Array[Bundle]()
-    for (i <- 0 until installed.length) {
+    for (i ← 0 until installed.length) {
       val bundle = installed(i)
       if (bundle.getLocation().startsWith(Framework.INITIAL_LOCATION)) {
         if (includeInitial)
@@ -101,23 +89,23 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends Logg
     val syspath = try {
       new File(supportLocator.getSysPath()).getCanonicalPath()
     } catch {
-      case e: IOException =>
+      case e: IOException ⇒
         supportLocator.getSysPath()
     }
     log.trace("Loading...")
-    for (initialBundle <- initialBundles) yield {
+    for (initialBundle ← initialBundles) yield {
       var level = defaultStartLevel
       var start = false
       var index = initialBundle.lastIndexOf('@')
       val name = if (index >= 0) {
-        for (attribute <- initialBundle.substring(index + 1, initialBundle.length()).split(":").map(_.trim)) {
+        for (attribute ← initialBundle.substring(index + 1, initialBundle.length()).split(":").map(_.trim)) {
           if (attribute.equals("start"))
             start = true
           else {
             try {
               level = Integer.parseInt(attribute);
             } catch { // bug 188089 - can't launch an OSGi bundle if the path of its plugin project contains the character "@"
-              case e: NumberFormatException =>
+              case e: NumberFormatException ⇒
                 index = initialBundle.length()
             }
           }
@@ -126,21 +114,21 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends Logg
       } else initialBundle
       try {
         Option(supportLocator.searchForBundle(name, syspath)) match {
-          case Some(location) =>
+          case Some(location) ⇒
             val relative = makeRelative(LocationManager.getInstallLocation().getURL(), location)
             val locationString = Framework.INITIAL_LOCATION + relative.toExternalForm()
             Some(ApplicationLauncher.InitialBundle(initialBundle, locationString, location, getBundleNameFromArgument(name), level, start))
-          case None =>
+          case None ⇒
             log.error(NLS.bind(EclipseAdaptorMsg.ECLIPSE_STARTUP_BUNDLE_NOT_FOUND, initialBundle))
             None
         }
       } catch {
-        case e: IOException =>
+        case e: IOException ⇒
           log.error(e.getMessage(), e)
           None
       }
     }
-  }.flatten.filterNot(bundle => filterNames.contains(bundle.name))
+  }.flatten.filterNot(bundle ⇒ filterNames.contains(bundle.name))
   /** Extract bundle name from string argument from config.ini, PROP_BUNDLES or PROP_EXTENSIONS */
   def getBundleNameFromArgument(argument: String): String = {
     // cut suffix after @
@@ -154,11 +142,11 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends Logg
       // sometimes it maybe like file:lib/library-N.N.jar
       new File(new URL(entry).getFile().split(":").last).getName.trim
     } catch {
-      case e: Throwable =>
+      case e: Throwable ⇒
         try {
           new File(entry).getName.trim
         } catch {
-          case e: Throwable =>
+          case e: Throwable ⇒
             entry.trim
         }
     }
@@ -182,19 +170,19 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends Logg
     if (reference != null)
       startService = context.getService(reference).asInstanceOf[StartLevel]
     try {
-      for (initialBundle <- initial) {
+      for (initialBundle ← initial) {
         try {
           // don't need to install if it is already installed
-          val osgiBundle = current.find(bundle => initialBundle.locationString.equalsIgnoreCase(bundle.getLocation())) getOrElse {
+          val osgiBundle = current.find(bundle ⇒ initialBundle.locationString.equalsIgnoreCase(bundle.getLocation())) getOrElse {
             val in = initialBundle.location.openStream()
             val bundle = try {
               context.installBundle(initialBundle.locationString, in)
             } catch {
-              case e: BundleException =>
+              case e: BundleException ⇒
                 e match {
-                  case status: StatusException if status.getStatusCode() == StatusException.CODE_OK && status.getStatus().isInstanceOf[Bundle] =>
+                  case status: StatusException if status.getStatusCode() == StatusException.CODE_OK && status.getStatus().isInstanceOf[Bundle] ⇒
                     status.getStatus().asInstanceOf[Bundle]
-                  case err =>
+                  case err ⇒
                     throw err
                 }
             }
@@ -214,9 +202,9 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends Logg
           if ((osgiBundle.getState() & Bundle.INSTALLED) != 0)
             toRefresh = toRefresh :+ osgiBundle
         } catch {
-          case e: BundleException =>
+          case e: BundleException ⇒
             log.error(NLS.bind(EclipseAdaptorMsg.ECLIPSE_STARTUP_FAILED_INSTALL, initialBundle.location), e)
-          case e: IOException =>
+          case e: IOException ⇒
             log.error(NLS.bind(EclipseAdaptorMsg.ECLIPSE_STARTUP_FAILED_INSTALL, initialBundle.location), e)
         }
       }
@@ -264,9 +252,9 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends Logg
   }
   @log
   def startBundles(startBundles: Array[Bundle], lazyBundles: Array[Bundle]) {
-    for (i <- 0 until startBundles.length)
+    for (i ← 0 until startBundles.length)
       startBundle(startBundles(i), 0)
-    for (i <- 0 until lazyBundles.length)
+    for (i ← 0 until lazyBundles.length)
       startBundle(lazyBundles(i), Bundle.START_ACTIVATION_POLICY)
   }
   /**
@@ -277,13 +265,13 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends Logg
    */
   @log
   def uninstallBundles(current: Array[Bundle], initial: Array[ApplicationLauncher.InitialBundle]): Array[Bundle] = {
-    for (currentBundle <- current) yield {
-      if (!initial.exists(initialBundle => currentBundle.getLocation().equalsIgnoreCase(initialBundle.locationString)))
+    for (currentBundle ← current) yield {
+      if (!initial.exists(initialBundle ⇒ currentBundle.getLocation().equalsIgnoreCase(initialBundle.locationString)))
         try {
           currentBundle.uninstall()
           Some(currentBundle)
         } catch {
-          case e: BundleException =>
+          case e: BundleException ⇒
             log.error(NLS.bind(EclipseAdaptorMsg.ECLIPSE_STARTUP_FAILED_UNINSTALL, currentBundle.getLocation()), e)
             None
         }
@@ -334,18 +322,18 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends Logg
   protected def startBundle(bundle: Bundle, options: Int) {
     try {
       options match {
-        case Bundle.START_TRANSIENT =>
+        case Bundle.START_TRANSIENT ⇒
           log.debug("Start TRANSIENT bundle " + bundle)
           bundle.start(options)
-        case Bundle.START_ACTIVATION_POLICY =>
+        case Bundle.START_ACTIVATION_POLICY ⇒
           log.debug("Start LAZY bundle " + bundle)
           bundle.start(options)
-        case _ =>
+        case _ ⇒
           log.debug("Start bundle " + bundle)
           bundle.start(options)
       }
     } catch {
-      case e: BundleException =>
+      case e: BundleException ⇒
         if ((bundle.getState() & Bundle.RESOLVED) != 0) {
           // only log errors if the bundle is resolved
           log.error(NLS.bind(EclipseAdaptorMsg.ECLIPSE_STARTUP_FAILED_START, bundle.getLocation()), e)

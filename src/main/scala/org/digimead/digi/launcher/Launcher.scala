@@ -24,11 +24,12 @@ import com.escalatesoft.subcut.inject.{ BindingModule, Injectable }
 import java.io.File
 import java.net.{ URI, URL, URLClassLoader }
 import java.util.concurrent.atomic.AtomicBoolean
+import org.digimead.digi.launcher.report.api.XReport
 import org.digimead.digi.launcher.report.{ ExceptionHandler, Report }
 import org.digimead.digi.lib.Activator
 import org.digimead.digi.lib.aop.log
-import org.digimead.digi.lib.api.DependencyInjection
-import org.digimead.digi.lib.log.api.Loggable
+import org.digimead.digi.lib.api.XDependencyInjection
+import org.digimead.digi.lib.log.api.XLoggable
 import scala.language.reflectiveCalls
 
 /**
@@ -38,7 +39,7 @@ import scala.language.reflectiveCalls
  * Rewrite or extend it if needed. It is easy.
  */
 class Launcher(implicit val bindingModule: BindingModule)
-  extends Launcher.Interface with Injectable with Loggable {
+  extends Launcher.Interface with Injectable with XLoggable {
   //
   // DI parameters
   //
@@ -78,7 +79,7 @@ class Launcher(implicit val bindingModule: BindingModule)
     constructor.newInstance(bindingModule)
   }.asInstanceOf[{
     def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_]
-    def initialize(applicationDI: Option[File], report: org.digimead.digi.launcher.report.api.Report)
+    def initialize(applicationDI: Option[File], report: XReport)
     def run(waitForTermination: Boolean, shutdownHandler: Option[Runnable])
   }]
   assert(bundles.isDirectory() && bundles.canRead() && bundles.isAbsolute(), s"Bundles directory '${bundles}' is inaccessable or relative.")
@@ -140,7 +141,7 @@ class Launcher(implicit val bindingModule: BindingModule)
  *           EclipsePlatform -->                (Level6. Start base application platform.)
  *             DigiApplication                  (Level7. Bingo!)
  */
-object Launcher extends Loggable {
+object Launcher extends XLoggable {
   /** Current launcher instance. */
   @volatile private var launcher: Option[Launcher.Interface] = None
   /** Name of base package/jar with OSGi framework */
@@ -236,7 +237,7 @@ object Launcher extends Loggable {
   /**
    * Dependency injection routines.
    */
-  private object DI extends DependencyInjection.PersistentInjectable {
+  private object DI extends XDependencyInjection.PersistentInjectable {
     /** Launcher implementation. */
     lazy val implementation = inject[Interface]
   }

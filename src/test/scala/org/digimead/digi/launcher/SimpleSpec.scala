@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -20,12 +20,12 @@
 
 package org.digimead.digi.lib
 
-import org.digimead.digi.lib.log.api.Loggable
+import org.digimead.digi.lib.log.api.XLoggable
 import org.digimead.lib.test.LoggingHelper
 import org.scalatest.{ Matchers, WordSpec }
 import org.scalatest.mock.MockitoSugar
 
-class SimpleSpec extends WordSpec with LoggingHelper with Matchers with MockitoSugar with Loggable {
+class SimpleSpec extends WordSpec with LoggingHelper with Matchers with MockitoSugar with XLoggable {
   before { DependencyInjection(org.digimead.digi.lib.default, false) }
 
   "stub" must {

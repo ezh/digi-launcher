@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -24,7 +24,7 @@ import scala.collection.mutable
 
 import org.digimead.digi.launcher.ApplicationLauncher
 import org.digimead.digi.lib.aop.log
-import org.digimead.digi.lib.log.api.Loggable
+import org.digimead.digi.lib.log.api.XLoggable
 import org.eclipse.osgi.framework.console.CommandInterpreter
 import org.eclipse.osgi.framework.console.CommandProvider
 import org.osgi.framework.BundleContext
@@ -37,7 +37,7 @@ import org.osgi.util.tracker.ServiceTracker
 /**
  * Console commands that control launcher life cycle.
  */
-class Commands(context: BundleContext) extends CommandProvider with Loggable {
+class Commands(context: BundleContext) extends CommandProvider with XLoggable {
   protected val LAUNCHABLE_APP_FILTER = "(&(application.locked=false)(application.launchable=true)(application.visible=true))"
   protected val ACTIVE_APP_FILTER = "(!(application.state=STOPPING))"
   protected val LOCKED_APP_FILTER = "(application.locked=true)"
