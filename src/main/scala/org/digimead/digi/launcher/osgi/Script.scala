@@ -54,7 +54,7 @@ class Script() {
     case e: Throwable ⇒
       throw new RuntimeException("Unable lo load scala interpreter from classpath (scala-compiler jar is missing?)", e)
   }
-  lazy val libPath = try classPathOfClass("scala.ScalaObject") catch {
+  lazy val libPath = try classPathOfClass("scala.Symbol") catch {
     case e: Throwable ⇒
       throw new RuntimeException("Unable to load scala base object from classpath (scala-library jar is missing?)", e)
   }
@@ -145,7 +145,10 @@ class Script() {
    */
   private def classPathOfClass(className: String) = {
     val resource = className.split('.').mkString("/", "/", ".class")
-    val path = getClass.getResource(resource).getPath
+    val path = Option(getClass.getResource(resource)) match {
+      case Some(resource) ⇒ resource.getPath
+      case None ⇒ throw new IllegalStateException(s"Unable to find resource ${resource} with ${getClass}.")
+    }
     if (path.indexOf("file:") >= 0) {
       val indexOfFile = path.indexOf("file:") + 5
       val indexOfSeparator = path.lastIndexOf('!')

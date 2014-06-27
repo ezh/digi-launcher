@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2014 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -18,7 +18,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.digimead.digi.launcher
+package org.digimead.digi.launcher.osgi
 
 import org.digimead.digi.lib.DependencyInjection
 import org.digimead.digi.lib.log.api.XLoggable
@@ -26,12 +26,15 @@ import org.digimead.lib.test.LoggingHelper
 import org.scalatest.{ Matchers, WordSpec }
 import org.scalatest.mock.MockitoSugar
 
-class SimpleSpec extends WordSpec with LoggingHelper with Matchers with MockitoSugar with XLoggable {
+class JavaVersionSpec extends WordSpec with LoggingHelper with Matchers with MockitoSugar with XLoggable {
   before { DependencyInjection(org.digimead.digi.lib.default, false) }
 
-  "stub" must {
-    "running" in {
-      assert(true)
+  "JavaVersion toVersion" must {
+    "have proper behaviour" in {
+      JavaVersion.toVersion("1.6.0_30") should be(JavaVersion(6, true))
+      JavaVersion.toVersion("1.7.0_10") should be(JavaVersion(7, true))
+      JavaVersion.toVersion("1.8.0_05") should be(JavaVersion(8, true))
+
     }
   }
 

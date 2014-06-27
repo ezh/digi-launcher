@@ -113,15 +113,18 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends XLog
         initialBundle.substring(0, index)
       } else initialBundle
       try {
-        Option(supportLocator.searchForBundle(name, syspath)) match {
-          case Some(location) ⇒
-            val relative = makeRelative(LocationManager.getInstallLocation().getURL(), location)
-            val locationString = Framework.INITIAL_LOCATION + relative.toExternalForm()
-            Some(ApplicationLauncher.InitialBundle(initialBundle, locationString, location, getBundleNameFromArgument(name), level, start))
-          case None ⇒
-            log.error(NLS.bind(EclipseAdaptorMsg.ECLIPSE_STARTUP_BUNDLE_NOT_FOUND, initialBundle))
-            None
-        }
+        if (!name.trim().startsWith("#")) // skip bundles, that started with comment sign '#'
+          Option(supportLocator.searchForBundle(name, syspath)) match {
+            case Some(location) ⇒
+              val relative = makeRelative(LocationManager.getInstallLocation().getURL(), location)
+              val locationString = Framework.INITIAL_LOCATION + relative.toExternalForm()
+              Some(ApplicationLauncher.InitialBundle(initialBundle, locationString, location, getBundleNameFromArgument(name), level, start))
+            case None ⇒
+              log.error(NLS.bind(EclipseAdaptorMsg.ECLIPSE_STARTUP_BUNDLE_NOT_FOUND, initialBundle))
+              None
+          }
+        else
+          None
       } catch {
         case e: IOException ⇒
           log.error(e.getMessage(), e)

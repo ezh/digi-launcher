@@ -118,16 +118,22 @@ object JavaFXHelper extends XLoggable {
   /** Get JavaFX library. */
   def getJavaFXRT(): Option[File] = {
     val home = new File(System.getProperty("java.home"))
+    val lib = new File(home, "lib")
+    val javafxPath =
+      if (JavaVersion.isJava8Compatible())
+        new File(new File(lib, "ext"), "jfxrt.jar")
+      else if (JavaVersion.isJava7Compatible())
+        new File(lib, "jfxrt.jar")
+      else
+        return None // Not supported
     if (!home.exists()) {
       log.warn("Java home not exists")
       None
     } else {
-      val lib = new File(home, "lib")
       if (!lib.exists()) {
         log.warn("Java library path not exists")
         None
       } else {
-        val javafxPath = new File(lib, "jfxrt.jar")
         if (!javafxPath.exists()) {
           log.warn("jfxrt.jar at '%s' not found".format(javafxPath))
           None

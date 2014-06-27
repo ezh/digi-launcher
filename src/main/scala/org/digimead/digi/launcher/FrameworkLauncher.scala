@@ -22,6 +22,7 @@ package org.digimead.digi.launcher
 
 import com.escalatesoft.subcut.inject.BindingModule
 import java.io.{ File, IOException }
+import java.lang.reflect.InvocationTargetException
 import java.net.URL
 import java.util.Properties
 import java.util.concurrent.atomic.AtomicLong
@@ -140,6 +141,9 @@ class FrameworkLauncher extends BundleListener with XLoggable {
       case e if e.getClass.getName().endsWith("Eval$CompilerException") ⇒
         log.error(s"Error in DI file ${diScript}: ${e.getMessage()}", e)
         System.err.println(s"\nError in DI file ${diScript}:\n ${e.getMessage()}\n")
+        false
+      case e: InvocationTargetException if e.getCause() != null ⇒
+        log.error("Unable to inject dependencies: " + e.getCause().getMessage(), e.getCause())
         false
       case e: Throwable ⇒
         log.error("Unable to inject dependencies: " + e.getMessage(), e)

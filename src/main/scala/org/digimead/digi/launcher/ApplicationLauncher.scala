@@ -343,13 +343,14 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     serviceTracker.open()
     Option(serviceTracker.waitForService(timeout)) match {
       case Some(main: Callable[_]) ⇒
-        System.out.println("Framework is ready. Loading application.")
+        System.out.print("Framework is ready. Loading application... ")
         log.info("Framework is ready. Loading application.")
         // block here
         reportStart(context)
         ApplicationLauncher.digiMainService = Some(digiMainService)
         try {
           resultAppBundleId = FrameworkUtil.getBundle(main.getClass()).getBundleId()
+          System.out.println("Done.\nWelcome!")
           resultCode = main.call().asInstanceOf[Int]
         } catch {
           case e: Throwable ⇒
