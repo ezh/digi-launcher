@@ -83,27 +83,8 @@ object ReportAppender extends XAppender {
     this.filter = filter
     this
   }
-  @log
-  override def init() = synchronized {
-    openLogFile()
-    output.foreach(_.flush)
-  }
-  override def deinit() = synchronized {
-    try {
-      // close output if any
-      output.foreach(_.close)
-      output = None
-      file = None
-    } catch {
-      case e: Throwable ⇒
-        Logging.commonLogger.error(e.getMessage, e)
-    }
-  }
-  override def flush() = synchronized {
-    try { output.foreach(_.flush) } catch { case e: Throwable ⇒ }
-  }
-
-  private def getFullStackTrace(t: Throwable): String = {
+  /** Convert throwable to string. */
+  def getFullStackTrace(t: Throwable): String = {
     val b = new StringBuilder()
 
     def appendStackTrace(t: Throwable, first: Boolean) {
@@ -134,6 +115,26 @@ object ReportAppender extends XAppender {
     }
     b.toString()
   }
+  @log
+  override def init() = synchronized {
+    openLogFile()
+    output.foreach(_.flush)
+  }
+  override def deinit() = synchronized {
+    try {
+      // close output if any
+      output.foreach(_.close)
+      output = None
+      file = None
+    } catch {
+      case e: Throwable ⇒
+        Logging.commonLogger.error(e.getMessage, e)
+    }
+  }
+  override def flush() = synchronized {
+    try { output.foreach(_.flush) } catch { case e: Throwable ⇒ }
+  }
+
   private def getLogFileName() =
     Report.filePrefix + "." + Report.logFileExtensionPrefix + Report.logFileExtension
   /** Close and compress the previous log file, prepare and open new one */

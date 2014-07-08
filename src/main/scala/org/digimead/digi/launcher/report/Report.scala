@@ -46,6 +46,8 @@ class Report(implicit val bindingModule: BindingModule) extends XReport with Inj
   val bufferSize: Int = injectOptional[Int]("Report.BufferSize") getOrElse 8196
   /** General information about application. */
   val info = getInfo()
+  /** Generate full stack trace reports. */
+  val fullStackTrace = injectOptional[Boolean]("Report.FullStackTrace") getOrElse true
   /** Number of saved log files. */
   val keepLogFiles: Int = injectOptional[Int]("Report.KeepLogFiles") getOrElse 4
   /** Quantity of saved trace files. */
@@ -198,10 +200,19 @@ class Report(implicit val bindingModule: BindingModule) extends XReport with Inj
     val reportName = filePrefix + "." + logFileExtensionPrefix + traceFileExtension
     val result = new StringWriter()
     val printWriter = new PrintWriter(result)
-    e.printStackTrace(printWriter)
-    if (e.getCause() != null) {
-      printWriter.println("\nCause:\n")
-      e.getCause().printStackTrace(printWriter)
+    try {
+      if (fullStackTrace)
+        printWriter.println(ReportAppender.getFullStackTrace(e))
+      else {
+        e.printStackTrace(printWriter)
+        if (e.getCause() != null) {
+          printWriter.println("\nCause:\n")
+          e.getCause().printStackTrace(printWriter)
+        }
+      }
+    } catch {
+      case e: Throwable ⇒
+        printWriter.append("\nstack trace \"" + e.getMessage + "\" unaviable")
     }
     try {
       val file = new File(path, reportName)
