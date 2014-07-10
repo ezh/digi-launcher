@@ -30,9 +30,10 @@ import org.eclipse.core.runtime.internal.adaptor.{ EclipseAdaptorMsg, Semaphore 
 import org.eclipse.osgi.framework.adaptor.{ FilePath, StatusException }
 import org.eclipse.osgi.util.NLS
 import org.osgi.framework.{ Bundle, BundleEvent, BundleException, FrameworkEvent, FrameworkListener, SynchronousBundleListener }
-import org.osgi.service.packageadmin.PackageAdmin
+import org.osgi.framework.wiring.FrameworkWiring
 import org.osgi.service.startlevel.StartLevel
 import org.osgi.util.tracker.ServiceTracker
+import scala.collection.JavaConversions.seqAsJavaList
 
 /**
  * Helper routines that contain OSGi loading logic.
@@ -221,20 +222,14 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends XLog
   @log
   def refreshPackages(bundles: Array[Bundle], framework: Framework): Boolean = {
     val context = framework.getSystemBundleContext()
-    val packageAdminRef = context.getServiceReference(classOf[PackageAdmin].getName())
-    var packageAdmin: PackageAdmin = null
-    if (packageAdminRef != null)
-      packageAdmin = context.getService(packageAdminRef).asInstanceOf[PackageAdmin]
-    if (packageAdmin == null)
-      return false
     // TODO this is such a hack it is silly.  There are still cases for race conditions etc
     // but this should allow for some progress...
     val semaphore = new Semaphore(0)
     val listener = new SupportBundleLoader.StartupEventListener(semaphore, FrameworkEvent.PACKAGES_REFRESHED)
     context.addFrameworkListener(listener)
     context.addBundleListener(listener)
-    packageAdmin.refreshPackages(bundles)
-    context.ungetService(packageAdminRef)
+    val frameworkWiring = context.getBundle(0).adapt(classOf[FrameworkWiring])
+    frameworkWiring.refreshBundles(bundles.toSeq, listener)
     //updateSplash(semaphore, listener)
     Framework.isForcedRestart()
   }

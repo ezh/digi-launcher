@@ -39,12 +39,11 @@ import org.eclipse.osgi.internal.profile.Profile
 import org.eclipse.osgi.service.resolver.{ BundleDescription, BundleSpecification, ImportPackageSpecification, VersionConstraint }
 import org.eclipse.osgi.util.NLS
 import org.osgi.framework.{ Bundle, BundleContext, BundleEvent, BundleListener, Constants, ServiceReference, ServiceRegistration }
+import org.osgi.framework.wiring.FrameworkWiring
 import org.osgi.service.log.{ LogEntry, LogListener, LogReaderService, LogService }
-import org.osgi.service.packageadmin.PackageAdmin
 import org.osgi.util.tracker.{ ServiceTracker, ServiceTrackerCustomizer }
 import org.slf4j.LoggerFactory
-import scala.Array.canBuildFrom
-import scala.collection.JavaConversions.{ asScalaIterator, asScalaSet, enumerationAsScalaIterator }
+import scala.collection.JavaConversions.{ asJavaCollection, asScalaIterator, asScalaSet, enumerationAsScalaIterator }
 import scala.language.reflectiveCalls
 
 /**
@@ -286,64 +285,58 @@ class FrameworkLauncher extends BundleListener with XLoggable {
   /** Refresh bundle. */
   @log
   def refreshBundles[T](id: Iterable[Long], singleOperationTimeout: Int, framework: osgi.Framework)(fBeforeRefresh: ⇒ T)(fAfterRefresh: ⇒ T): Boolean = {
-    log.debug(s"Refresh bundles with id (${id.mkString(",")}).")
+    log.debug(s"Refresh bundles with id (${id.mkString(", ")}).")
     val context = framework.getSystemBundleContext()
-    Option(context.getServiceReference(classOf[PackageAdmin])) match {
-      case Some(packageAdminRef) ⇒
-        try {
-          Option(context.getService(packageAdminRef)).map { packageAdmin ⇒
-            val bundles = id.map(context.getBundle)
-            if (bundles.isEmpty) {
-              log.error(ConsoleMsg.CONSOLE_INVALID_BUNDLE_SPECIFICATION_ERROR)
-              false
-            } else {
-              val toStop = bundles.flatMap(b ⇒ if (b.getState() == Bundle.ACTIVE) Some(b) else None)
-              log.debug(s"Stop bundles (${toStop.map(_.getSymbolicName()).mkString(",")}).")
-              toStop.foreach { bundle ⇒
-                try { bundle.stop } catch { case e: Throwable ⇒ log.error("Unable to stop bundle " + bundle + ": " + e.getMessage(), e) }
-              }
-              waitForState(singleOperationTimeout, toStop.toSeq, (states) ⇒
-                states.forall(s ⇒ s != Bundle.ACTIVE && s != Bundle.STOPPING))
-              if (!waitForConsitentState(singleOperationTimeout, framework))
-                log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
-              log.info(s"Refresh bundles (${bundles.map(_.getSymbolicName()).mkString(",")}).")
+    val bundles = id.map(context.getBundle)
+    if (bundles.isEmpty) {
+      log.error(ConsoleMsg.CONSOLE_INVALID_BUNDLE_SPECIFICATION_ERROR)
+      false
+    } else {
+      val toStop = bundles.flatMap(b ⇒ if (b.getState() == Bundle.ACTIVE) Some(b) else None)
+      log.debug(s"Stop bundles (${toStop.map(_.getSymbolicName()).mkString(",")}).")
+      toStop.foreach { bundle ⇒
+        try { bundle.stop } catch { case e: Throwable ⇒ log.error("Unable to stop bundle " + bundle + ": " + e.getMessage(), e) }
+      }
+      waitForState(singleOperationTimeout, toStop.toSeq, (states) ⇒
+        states.forall(s ⇒ s != Bundle.ACTIVE && s != Bundle.STOPPING))
+      if (!waitForConsitentState(singleOperationTimeout, framework))
+        log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
+      log.info(s"Refresh bundles (${bundles.map(_.getSymbolicName()).mkString(",")}).")
 
-              fBeforeRefresh // call the user function
-              packageAdmin.refreshPackages(bundles.toArray)
-              if (!waitForConsitentState(singleOperationTimeout, framework))
-                log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
-              fAfterRefresh // call the user function
+      fBeforeRefresh // call the user function
+      val locations = bundles.map(_.getLocation())
+      toStop.foreach { bundle ⇒
+        try { bundle.uninstall() } catch { case e: Throwable ⇒ log.error("Unable to uninstall bundle " + bundle + ": " + e.getMessage(), e) }
+      }
+      val frameworkWiring = context.getBundle(0).adapt(classOf[FrameworkWiring])
+      val toResolve = locations.map(context.installBundle)
+      frameworkWiring.resolveBundles(toResolve)
+      if (!waitForConsitentState(singleOperationTimeout, framework))
+        log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
+      fAfterRefresh // call the user function
 
-              // waiting for start up to 'singleOperationTimeout'
-              val toStart = context.getBundles().filter { b ⇒
-                val exists = toStop.exists(_.getSymbolicName() == b.getSymbolicName())
-                val lazyPolicy = !framework.hasLazyActivationPolicy(b)
-                exists && lazyPolicy
-              }
-              log.debug(s"Waiting for bundles (${toStart.map(_.getSymbolicName()).mkString(",")}).")
-              // there is nothing critical if we try to start bundle that is already starting
-              toStart.foreach { bundle ⇒
-                try { bundle.start } catch { case e: Throwable ⇒ log.error("Unable to start bundle " + bundle + ": " + e.getMessage(), e) }
-              }
-              waitForState(singleOperationTimeout, toStart.toSeq, (states) ⇒ states.forall(_ == Bundle.ACTIVE))
-              // try to start if something wrong
-              val notStarted = toStart.filter(b ⇒ b.getState() != Bundle.ACTIVE && b.getState() != Bundle.INSTALLED)
-              if (notStarted.nonEmpty) {
-                log.warn(s"There are not started bundles, try to start them. Process: " +
-                  notStarted.map(b ⇒ b.getSymbolicName() + ": " + b.getState()).mkString(","))
-                notStarted.foreach(_.start)
-                if (!waitForConsitentState(singleOperationTimeout, framework))
-                  log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
-              }
-              true
-            }
-          } getOrElse false
-        } finally {
-          context.ungetService(packageAdminRef)
-        }
-      case None ⇒
-        log.error(ConsoleMsg.CONSOLE_CAN_NOT_REFRESH_NO_PACKAGE_ADMIN_ERROR)
-        false
+      // waiting for start up to 'singleOperationTimeout'
+      val toStart = context.getBundles().filter { b ⇒
+        val exists = toStop.exists(_.getSymbolicName() == b.getSymbolicName())
+        val lazyPolicy = !framework.hasLazyActivationPolicy(b)
+        exists && lazyPolicy
+      }
+      log.debug(s"Waiting for bundles (${toStart.map(_.getSymbolicName()).mkString(",")}).")
+      // there is nothing critical if we try to start bundle that is already starting
+      toStart.foreach { bundle ⇒
+        try { bundle.start } catch { case e: Throwable ⇒ log.error("Unable to start bundle " + bundle + ": " + e.getMessage(), e) }
+      }
+      waitForState(singleOperationTimeout, toStart.toSeq, (states) ⇒ states.forall(_ == Bundle.ACTIVE))
+      // try to start if something wrong
+      val notStarted = toStart.filter(b ⇒ b.getState() != Bundle.ACTIVE && b.getState() != Bundle.INSTALLED)
+      if (notStarted.nonEmpty) {
+        log.warn(s"There are not started bundles, try to start them. Process: " +
+          notStarted.map(b ⇒ b.getSymbolicName() + ": " + b.getState()).mkString(","))
+        notStarted.foreach(_.start)
+        if (!waitForConsitentState(singleOperationTimeout, framework))
+          log.errorWhere(s"Unable to stay in inconsistent state more than ${singleOperationTimeout / 1000}s. Running anyway.")
+      }
+      true
     }
   }
   /** Create bridge between OSGi log service and application logger */
