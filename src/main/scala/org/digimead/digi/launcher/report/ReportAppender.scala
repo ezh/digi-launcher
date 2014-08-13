@@ -162,7 +162,7 @@ object ReportAppender extends XAppender {
       val writer = new PrintWriter(new BufferedWriter(new FileWriter(f, true)))
       writer.write("=== TA-Buddy desktop (if you have a question or suggestion, email ezh@ezh.msk.ru) ===\n")
       writer.write("report path: " + Report.path + "\n")
-      writer.write(s"os: ${Report.info.os}\narch: ${Report.info.arch}\nplatform: ${Report.info.platform}\n" +
+      writer.write(s"os: ${Report.info.os}\narch: ${Report.info.arch}\nversion: ${Report.info.version}\n" +
         Report.info.component.map(c ⇒ s"${c.name}: version: ${c.version}, build: ${Report.dateString(c.build)} (${c.rawBuild})").
         sorted.mkString("\n") + "\n")
       writer.write("=====================================================================================\n\n")

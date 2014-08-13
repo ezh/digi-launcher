@@ -24,10 +24,9 @@ import com.escalatesoft.subcut.inject.BindingModule
 import java.io.File
 import java.net.{ URL, URLClassLoader }
 import org.digimead.digi.lib.log.api.XLoggable
+import org.eclipse.core.runtime.adaptor.LocationManager
 import org.osgi.framework.Bundle
 import org.osgi.framework.wiring.BundleWiring
-import scala.Array.{ canBuildFrom, fallbackCanBuildFrom }
-import scala.Option.option2Iterable
 import scala.language.reflectiveCalls
 
 /** OSGi framework DI initializer */
@@ -79,7 +78,14 @@ class DI extends XLoggable {
     // The original class loader from the outer world
     val delegationLoader = this.getClass().getClassLoader().
       asInstanceOf[{ val delegationLoader: ClassLoader }].delegationLoader.asInstanceOf[URLClassLoader]
-    Some(new DI.ClassLoader(getClass.getClassLoader(), delegationLoader.getURLs(), bundleContext.map(_._2)))
+    val urls = delegationLoader.getURLs() ++ framework.getSystemBundleContext().getBundles().flatMap(_.getLocation() match {
+      case file if file.startsWith("initial@reference:file:") ⇒
+        Some(new URL(LocationManager.getInstallLocation().getURL() + file.drop(23)))
+      case other ⇒
+        log.debug("Skip classpath entry " + other)
+        None
+    })
+    Some(new DI.ClassLoader(getClass.getClassLoader(), urls.toSet.toArray, bundleContext.map(_._2)))
   }
 }
 

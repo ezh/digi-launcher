@@ -306,18 +306,10 @@ class Report(implicit val bindingModule: BindingModule) extends XReport with Inj
         log.error(s"Unable to load version.properties for ${resURL}.", e)
         None
     }
-    // Get SWT information if any.
-    // SWT native library is poisoned JVM. Reload of SWT bundle is doomed from the beginning by design
-    //   so we are nothing to be afraid of: like class loader lock.
-    val platform = try {
-      Option(Class.forName("org.eclipse.swt.SWT").getMethod("getPlatform").invoke(null))
-    } catch {
-      case e: Throwable ⇒
-        log.error(e.getMessage(), e)
-        None
-    }
-    XReport.Info(components.flatten.toSeq, Option(System.getProperty("os.name")).getOrElse("UNKNOWN"),
-      Option(System.getProperty("os.arch")).getOrElse("UNKNOWN"), platform.map(_.toString()).getOrElse("UNKNOWN"))
+    XReport.Info(components.flatten.toSeq,
+      Option(System.getProperty("os.name")).getOrElse("UNKNOWN"),
+      Option(System.getProperty("os.arch")).getOrElse("UNKNOWN"),
+      Option(System.getProperty("os.version")).getOrElse("UNKNOWN"))
   }
   /**
    * Build sequence of files to delete

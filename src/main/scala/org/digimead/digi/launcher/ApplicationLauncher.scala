@@ -82,15 +82,15 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   /** The configuration location. */
   val configArea = injectOptional[URL](LocationManager.PROP_CONFIG_AREA)
   /** The console and port */
-  val console = injectOptional[Option[Int]](org.eclipse.core.runtime.adaptor.EclipseStarter.PROP_CONSOLE)
+  val console = injectOptional[Option[String]](org.eclipse.core.runtime.adaptor.EclipseStarter.PROP_CONSOLE)
   /** Path to the directory with application data. */
   val data = inject[File]("Launcher.Data")
   /** A boolean flag indicating whether or not to be debugging enabled. */
   val debug = injectOptional[Boolean]("Launcher.Debug") getOrElse false
   /** Look for the debug mode and option file location. */
   val debugFile = injectOptional[Option[File]](org.eclipse.core.runtime.adaptor.EclipseStarter.PROP_DEBUG)
-  /** TCP port of equinox console. */
-  val debugPort = injectOptional[Int]("Launcher.Debug.Port") getOrElse console.getOrElse(None).getOrElse(12345)
+  /** TCP listener address of equinox console. */
+  val debugListener = injectOptional[String]("Launcher.Debug.Listener") getOrElse console.getOrElse(None).getOrElse("localhost:12345")
   /**
    * Bundles which are specified on the osgi.bundles list can specify a particular startlevel. If they
    * do not specify a startlevel then they default to the value of osgi.bundles.defaultStartLevel
@@ -210,7 +210,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       if (debug) {
         frameworkLauncher.Properties.setInitial(baseProperties ++
           immutable.HashMap(
-            EclipseStarter.PROP_CONSOLE -> debugPort.toString,
+            EclipseStarter.PROP_CONSOLE -> debugListener.toString,
             "osgi.console.enable.builtin" -> true.toString))
       } else {
         frameworkLauncher.Properties.setInitial(baseProperties)

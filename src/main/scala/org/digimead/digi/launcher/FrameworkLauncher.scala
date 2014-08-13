@@ -172,9 +172,9 @@ class FrameworkLauncher extends BundleListener with XLoggable {
   def loadBundles(defaultStartLevel: Int, framework: osgi.Framework): (Boolean, Array[Bundle], Array[Bundle]) = {
     log.info("Load OSGi bundles.")
     log.debug("Loading OSGi bundles.")
-    val primaryBundles = FrameworkProperties.getProperty(EclipseStarter.PROP_BUNDLES)
+    val primaryBundles = Option(FrameworkProperties.getProperty(EclipseStarter.PROP_BUNDLES)).getOrElse("")
     val initialPrimaryBundles = supportLoader.getInitialBundles(primaryBundles, Seq(Launcher.OSGiPackage), defaultStartLevel)
-    val secondaryBundles = FrameworkProperties.getProperty(EclipseStarter.PROP_EXTENSIONS)
+    val secondaryBundles = Option(FrameworkProperties.getProperty(EclipseStarter.PROP_EXTENSIONS)).getOrElse("")
     val initialSecondaryBundles = supportLoader.getInitialBundles(secondaryBundles, Seq(Launcher.OSGiPackage), defaultStartLevel)
     val initialBundles = initialPrimaryBundles ++ initialSecondaryBundles.
       filterNot(secondary ⇒ initialPrimaryBundles.exists(_.name == secondary.name))
