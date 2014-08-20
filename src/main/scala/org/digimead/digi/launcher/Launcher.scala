@@ -23,12 +23,14 @@ package org.digimead.digi.launcher
 import com.escalatesoft.subcut.inject.{ BindingModule, Injectable }
 import java.io.File
 import java.net.{ URI, URL, URLClassLoader }
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import org.digimead.digi.launcher.report.api.XReport
 import org.digimead.digi.launcher.report.{ ExceptionHandler, Report }
 import org.digimead.digi.lib.Activator
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.api.XDependencyInjection
+import org.digimead.digi.lib.log.Logging
 import org.digimead.digi.lib.log.api.XLoggable
 import scala.language.reflectiveCalls
 
@@ -80,7 +82,7 @@ class Launcher(implicit val bindingModule: BindingModule)
   }.asInstanceOf[{
     def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_]
     def initialize(applicationDI: Option[File], report: XReport)
-    def run(waitForTermination: Boolean, shutdownHandler: Option[Runnable])
+    def run(waitForTermination: Boolean, mainQueue: ConcurrentLinkedQueue[Runnable], shutdownHandler: Option[Runnable])
   }]
   assert(bundles.isDirectory() && bundles.canRead() && bundles.isAbsolute(), s"Bundles directory '${bundles}' is inaccessable or relative.")
   assert(data.isDirectory() && data.canRead() && data.isAbsolute(), s"Data directory '${data}' is inaccessable or relative.")
@@ -93,8 +95,8 @@ class Launcher(implicit val bindingModule: BindingModule)
   }
   /** Run OSGi framework and application. */
   @log
-  def run(waitForTermination: Boolean, shutdownHandler: Option[Runnable]) =
-    applicationLauncher.run(waitForTermination, shutdownHandler)
+  def run(waitForTermination: Boolean, mainQueue: ConcurrentLinkedQueue[Runnable], shutdownHandler: Option[Runnable]) =
+    applicationLauncher.run(waitForTermination, mainQueue, shutdownHandler)
 
   /** Get to location that contains org.digimead.digi.launcher */
   protected def getLauncherURL(): URL = {
@@ -141,7 +143,7 @@ class Launcher(implicit val bindingModule: BindingModule)
  *           EclipsePlatform -->                (Level6. Start base application platform.)
  *             DigiApplication                  (Level7. Bingo!)
  */
-object Launcher extends XLoggable {
+object Launcher {
   /** Current launcher instance. */
   @volatile private var launcher: Option[Launcher.Interface] = None
   /** Name of base package/jar with OSGi framework */
@@ -159,8 +161,9 @@ object Launcher extends XLoggable {
    * @param launcherDI Consolidated dependency injection information for launcher.
    * @param applicationDI Consolidated dependency injection information for OSGi bundles.
    */
-  def main[T](wait: Boolean, launcherDI: ⇒ BindingModule,
+  def main[T](launcherDI: ⇒ BindingModule,
     bootstrapRegExp: Seq[String], applicationDIScript: Option[File] = None)(shutdownHook: ⇒ T) = synchronized {
+    val mainQueue = new ConcurrentLinkedQueue[Runnable]()
     System.out.println("Activating the launcher.")
     // Initialize DI, that may contains code with implicit OSGi initialization.
     // But this is not significant because we will have clean context from our framework loader
@@ -180,29 +183,33 @@ object Launcher extends XLoggable {
     // We always propagate protocol handlers
     Option(System.getProperty("java.protocol.handler.pkgs")).foreach(_.split("""|""").foreach { pkg ⇒
       val pkgRegEx = "^" + pkg.trim.replaceAll("""\.""", """\.""")
-      log.debug(s"Pass protocol handler '${pkg}' -> '${pkgRegEx}'")
+      Logging.commonLogger.debug(s"Launcher: Pass protocol handler '${pkg}' -> '${pkgRegEx}'")
       bootstrap.rootClassLoader.addBootDelegationExpression(pkgRegEx)
     })
     // Initialize application launcher within rootClassLoader context.
     bootstrap.initialize(applicationDIScript)
     // Run application launcher within rootClassLoader context.
-    if (wait) {
-      // Start synchronous.
-      bootstrap.run(true, None)
+    bootstrap.run(false, mainQueue, Some(new Runnable {
       // Stop JVM wide logging/caching
-      launcher = None
-      Activator.stop()
-      shutdownHook
-    } else {
-      // Start asynchronous.
-      bootstrap.run(false, Some(new Runnable {
-        // Stop JVM wide logging/caching
-        def run = {
-          launcher = None
-          Activator.stop()
-          shutdownHook
+      def run = {
+        launcher = None
+        Activator.stop()
+        shutdownHook
+        mainQueue.synchronized {
+          mainQueue.offer(QueueExit)
+          mainQueue.notifyAll()
         }
-      }))
+      }
+    }))
+    // Implement main event loop. Why? Because of
+    // http://stackoverflow.com/questions/3976342/running-swt-based-cross-platform-jar-properly-on-a-mac
+    // other issues and "best practics"...
+    val eventFiller = new QueueFiller(mainQueue)
+    var event: Runnable = eventFiller
+    while (event != QueueExit) {
+      Logging.commonLogger.debug("Launcher: Change main event queue mode to " + event)
+      event.run()
+      event = Option(mainQueue.poll()) getOrElse eventFiller
     }
   }
   /** Get bundle singleton. */
@@ -230,9 +237,28 @@ object Launcher extends XLoggable {
     /** Prepare OSGi framework settings. */
     def initialize(applicationDIScript: Option[File])
     /** Run OSGi framework and application. */
-    def run(waitForTermination: Boolean, shutdownHandler: Option[Runnable])
+    def run(waitForTermination: Boolean, mainQueue: ConcurrentLinkedQueue[Runnable], shutdownHandler: Option[Runnable])
     /** Get bundle class. */
     def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_]
+  }
+  /**
+   * Filler event for main queue.
+   */
+  class QueueFiller(mainQueue: ConcurrentLinkedQueue[Runnable]) extends Runnable {
+    def run(): Unit = mainQueue.synchronized {
+      val result = mainQueue.peek()
+      if (result != null)
+        return
+      mainQueue.wait()
+    }
+    override def toString() = "QueueFiller"
+  }
+  /**
+   * Exit event for main queue.
+   */
+  object QueueExit extends Runnable {
+    def run() {}
+    override def toString() = "QueueExit"
   }
   /**
    * Dependency injection routines.

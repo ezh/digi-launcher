@@ -20,35 +20,19 @@
 
 package org.digimead.digi.launcher
 
-import java.io.BufferedReader
-import java.io.File
-import java.io.IOException
-import java.io.InputStreamReader
-import java.io.PipedInputStream
-import java.io.PipedOutputStream
-import java.io.PrintStream
-import java.io.PrintWriter
-import java.io.StringWriter
+import com.escalatesoft.subcut.inject.{ BindingModule, Injectable }
+import java.io.{ BufferedReader, File, IOException, InputStreamReader, PipedInputStream, PipedOutputStream, PrintStream, PrintWriter, StringWriter }
 import java.net.URL
-import java.util.concurrent.Callable
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.{ Callable, ConcurrentLinkedQueue, CountDownLatch }
 import java.util.zip.ZipInputStream
-
-import scala.Array.canBuildFrom
-import scala.Option.option2Iterable
-import scala.collection.JavaConversions._
-import scala.collection.immutable
-import scala.collection.mutable
-
+import org.digimead.digi.launcher.api.XLauncher
 import org.digimead.digi.launcher.report.ReportAppender
 import org.digimead.digi.launcher.report.api.XReport
 import org.digimead.digi.lib.aop.log
 import org.digimead.digi.lib.log.api.XLoggable
-import org.eclipse.core.runtime.adaptor.EclipseStarter
-import org.eclipse.core.runtime.adaptor.LocationManager
-import org.eclipse.core.runtime.internal.adaptor.EclipseAdaptorMsg
-import org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher
+import org.eclipse.core.runtime.adaptor.{ EclipseStarter, LocationManager }
+import org.eclipse.core.runtime.internal.adaptor.{ EclipseAdaptorMsg, EclipseAppLauncher }
 import org.eclipse.osgi.framework.debug.FrameworkDebugOptions
 import org.eclipse.osgi.framework.internal.core.ConsoleManager
 import org.eclipse.osgi.framework.internal.core.FrameworkProperties
@@ -59,11 +43,9 @@ import org.osgi.framework.FrameworkUtil
 import org.osgi.framework.ServiceRegistration
 import org.osgi.framework.wiring.BundleWiring
 import org.osgi.util.tracker.ServiceTracker
-
-import com.escalatesoft.subcut.inject.BindingModule
-import com.escalatesoft.subcut.inject.Injectable
-
-import language.reflectiveCalls
+import scala.collection.JavaConversions._
+import scala.collection.mutable
+import scala.language.reflectiveCalls
 
 /**
  * Application launcher spawned from RootClassLoader.
@@ -153,13 +135,17 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   /** Location of .options file with debug options */
   lazy val locationDebugOptions = new File(locationConfigurationArea, ".options")
   /** User shutdown hook. */
-  @volatile protected var userShutdownHook: Option[Runnable] = None
+  @volatile protected var userShutdownHook = Option.empty[Runnable]
   /** Location of script with DI settings. */
-  @volatile protected var applicationDIScript: Option[File] = None
+  @volatile protected var applicationDIScript = Option.empty[File]
+  /** Launcher main queue. */
+  @volatile protected var launcherMainQueue = Option.empty[ConcurrentLinkedQueue[Runnable]]
+  /** Launcher service registration. */
+  @volatile protected var launcherRegistration = Option.empty[ServiceRegistration[XLauncher]]
   /** Report instance from non OSGi world. */
-  @volatile protected var report: Option[XReport] = None
+  @volatile protected var report = Option.empty[XReport]
   /** Report service registration. */
-  @volatile protected var reportRegistration: Option[ServiceRegistration[XReport]] = None
+  @volatile protected var reportRegistration = Option.empty[ServiceRegistration[XReport]]
 
   checkAfterInitialization
   // IMPORTANT.
@@ -186,7 +172,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       this.report = Option(report)
       this.applicationDIScript = applicationDIScript
       val diProperties = initializeDIProperties
-      val baseProperties = immutable.HashMap[String, String](
+      val baseProperties = Map[String, String](
         "osgi.checkConfiguration" -> "true", // timestamps are check in the configuration cache to ensure that the cache is up to date
         "osgi.classloader.singleThreadLoads" -> "false", //
         EclipseStarter.PROP_DEBUG -> locationDebugOptions.getAbsolutePath(), // search .options file at the provided location
@@ -209,8 +195,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         "osgi.syspath" -> bundles.getAbsolutePath) ++ diProperties
       if (debug) {
         frameworkLauncher.Properties.setInitial(baseProperties ++
-          immutable.HashMap(
-            EclipseStarter.PROP_CONSOLE -> debugListener.toString,
+          Map(EclipseStarter.PROP_CONSOLE -> debugListener.toString,
             "osgi.console.enable.builtin" -> true.toString))
       } else {
         frameworkLauncher.Properties.setInitial(baseProperties)
@@ -228,9 +213,9 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     }
   /** ApplicationLauncher main loop method. */
   @log
-  def run(waitForTermination: Boolean, shutdownHandler: Option[Runnable]) {
+  def run(waitForTermination: Boolean, mainQueue: ConcurrentLinkedQueue[Runnable], shutdownHandler: Option[Runnable]) {
     userShutdownHook = shutdownHandler
-    // This is also SWT main thread
+    launcherMainQueue = Some(mainQueue)
     val thread = new Thread(this, "Digi Launcher main thread")
     thread.start()
     ApplicationLauncher.applicationThread = Some(thread)
@@ -255,7 +240,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     // Sequence of expired or modified bundles that will be reloaded.
     var modifiedBundles = Seq[Long]()
     // map for directory bundles: bundle id -> map(file in directory, modification time).
-    var monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]] = null
+    var monitor: Map[Long, Map[File, Long]] = null
     while (ApplicationLauncher.developmentFlag(framework).get() || code == ApplicationLauncher.ReturnCode.RESTART) {
       forceReload = false // at the beginning we don't want to reload bundles
       modifiedBundles = Seq() // at the beginning we haven't any expired or modified bundles
@@ -280,6 +265,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
               Thread.sleep(5000)
               forceReload = true
             case e: Throwable ⇒
+              System.err.println("\nDigi application halted: " + e.getMessage)
               log.error("Digi application halted: " + e.getMessage, e)
               Thread.sleep(1000)
           }
@@ -435,16 +421,16 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     classLoader.loadClass(singletonClassName)
   }
   /** Collect all bundles that are directories, save lastModified for each file in bundle. */
-  protected def initializeDevelopmentMonitor(framework: osgi.Framework): immutable.HashMap[Long, immutable.HashMap[File, Long]] = {
+  protected def initializeDevelopmentMonitor(framework: osgi.Framework): Map[Long, Map[File, Long]] = {
     dev match {
       case Some(seq) if seq.nonEmpty ⇒
         // We are not interested in monitor: We have an explicit bundle list.
         log.debug("Development mode. Skip monitor initialization.")
-        return immutable.HashMap()
+        return Map()
       case None if !ApplicationLauncher.developmentFlag(framework).get ⇒
         // We are not interested in monitor: development mode disabled.
         log.debug("Production mode. Skip monitor initialization.")
-        return immutable.HashMap()
+        return Map()
       case _ ⇒
         log.debug("Development mode. Initialize monitor.")
     }
@@ -453,16 +439,16 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
       if (location.isDirectory()) {
         log.debug(s"Development mode. Add ${bundle.getSymbolicName()} to monitor.")
-        Some(bundle.getBundleId() -> immutable.HashMap(
+        Some(bundle.getBundleId() -> Map(
           recursiveListFiles(location).map(file ⇒ (file, file.lastModified())): _*))
       } else
         None
     }
-    immutable.HashMap(entries.flatten: _*)
+    Map(entries.flatten: _*)
   }
   /** Convert DI settings to Map for FrameworkProperties */
   @log
-  protected def initializeDIProperties(): immutable.Map[String, String] = {
+  protected def initializeDIProperties(): Map[String, String] = {
     var properties = mutable.HashMap[String, String]()
     console.foreach(arg ⇒ properties(EclipseStarter.PROP_CONSOLE) = arg.toString)
     configArea.foreach(arg ⇒ properties(LocationManager.PROP_CONFIG_AREA) = arg.toString)
@@ -503,6 +489,27 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
         return
     }
   }
+  /** Start launcher service. */
+  @log
+  def launcherStart(context: BundleContext) {
+    // Start "launcher" service
+    launcherRegistration = Option(context.registerService(classOf[XLauncher], LauncherService, null))
+    launcherRegistration match {
+      case Some(service) ⇒ log.debug("Register launcher service as: " + service)
+      case None ⇒ log.error("Unable to register launcher service.")
+    }
+  }
+  /** Stop launcher service. */
+  @log
+  def launcherStop(context: BundleContext) {
+    // Stop "launcher" service
+    launcherRegistration.foreach { serviceRegistration ⇒
+      log.debug("Unregister launcher service.")
+      serviceRegistration.unregister()
+    }
+    launcherRegistration = None
+    LauncherService.reset()
+  }
   /** Prepare OSGi framework. */
   @log
   protected def prepare() {
@@ -534,14 +541,14 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     }
   }
   /** Refresh bundle if there is at least one modified file. */
-  protected def processDevelopmentMonitor(modifiedBundles: Seq[Long], monitor: immutable.HashMap[Long, immutable.HashMap[File, Long]], framework: osgi.Framework, forceReload: Boolean): Boolean = {
+  protected def processDevelopmentMonitor(modifiedBundles: Seq[Long], monitor: Map[Long, Map[File, Long]], framework: osgi.Framework, forceReload: Boolean): Boolean = {
     val context = framework.getSystemBundleContext()
     val modified = monitor.keys.flatMap { id ⇒
       Option(framework.getBundle(id)) match {
         case Some(bundle) ⇒
           val location = new File(bundle.getLocation().replaceFirst("^initial@reference:file:", ""))
           if (location.isDirectory()) {
-            val newState = immutable.HashMap(recursiveListFiles(location).map(file ⇒ (file, file.lastModified())): _*)
+            val newState = Map(recursiveListFiles(location).map(file ⇒ (file, file.lastModified())): _*)
             val oldState = monitor(id)
             if (newState.size != oldState.size)
               Some(id)
@@ -587,16 +594,16 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     // Start "report" service
     reportRegistration = Option(context.registerService(classOf[XReport], report, null))
     reportRegistration match {
-      case Some(service) ⇒ log.debug("Register launcher report service as: " + service)
-      case None ⇒ log.error("Unable to register launcher report service.")
+      case Some(service) ⇒ log.debug("Register report service as: " + service)
+      case None ⇒ log.error("Unable to register report service.")
     }
   }
   /** Stop report service. */
   @log
   def reportStop(context: BundleContext) = report.foreach { report ⇒
-    // Stop "main" service
+    // Stop "report" service
     reportRegistration.foreach { serviceRegistration ⇒
-      log.debug("Unregister launcher report service.")
+      log.debug("Unregister report service.")
       serviceRegistration.unregister()
     }
     reportRegistration = None
@@ -640,6 +647,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       //   5. new URL protocol handler: reference. IMPORTANT
       frameworkLauncher.check(framework)
       val restart = try {
+        launcherStart(framework.getSystemBundleContext())
         frameworkLauncher.loadBundles(defaultBundlesStartLevel, framework) match {
           case ((true, lazyActivationBundles, toStartBundles)) ⇒
             // System bundle is STARTING, all other bundles are RESOLVED and framework is consistent
@@ -752,6 +760,23 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   private def recursiveListFiles(f: File): Array[File] = {
     val these = f.listFiles
     these ++ these.filter(_.isDirectory).flatMap(recursiveListFiles(_))
+  }
+
+  /**
+   * Launcher service that allow to pass runnable to main queue.
+   */
+  object LauncherService extends XLauncher {
+    def offerToMainQueue(event: Runnable) = launcherMainQueue.foreach { queue ⇒
+      queue.synchronized {
+        queue.offer(event)
+        queue.notifyAll()
+      }
+    }
+    def reset() = launcherMainQueue.foreach { queue ⇒
+      queue.synchronized {
+        queue.notifyAll()
+      }
+    }
   }
 }
 
