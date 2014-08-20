@@ -22,7 +22,7 @@ package org.digimead.digi.launcher.osgi
 
 import com.escalatesoft.subcut.inject.BindingModule
 import java.io.File
-import java.net.{ URL, URLClassLoader }
+import java.net.{ URISyntaxException, URL, URLClassLoader, URLDecoder }
 import org.digimead.digi.lib.log.api.XLoggable
 import org.eclipse.core.runtime.adaptor.LocationManager
 import org.osgi.framework.Bundle
@@ -80,7 +80,12 @@ class DI extends XLoggable {
       asInstanceOf[{ val delegationLoader: ClassLoader }].delegationLoader.asInstanceOf[URLClassLoader]
     val urls = delegationLoader.getURLs() ++ framework.getSystemBundleContext().getBundles().flatMap(_.getLocation() match {
       case file if file.startsWith("initial@reference:file:") ⇒
-        Some(new URL(LocationManager.getInstallLocation().getURL() + file.drop(23)))
+        val urlUnfiltered = new URL(LocationManager.getInstallLocation().getURL() + file.drop(23))
+        val fileUnfiltered = try new File(urlUnfiltered.toURI()) catch {
+          case e: URISyntaxException ⇒
+            new File(URLDecoder.decode(urlUnfiltered.getPath(), "UTF-8"))
+        }
+        Some(fileUnfiltered.getCanonicalFile().toURI.toURL)
       case other ⇒
         log.debug("Skip classpath entry " + other)
         None
