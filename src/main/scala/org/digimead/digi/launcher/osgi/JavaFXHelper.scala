@@ -38,7 +38,7 @@ import org.eclipse.osgi.internal.baseadaptor.DefaultClassLoader
 class JavaFXHelper(library: File) extends ClassLoadingHook with XLoggable {
   log.debug("Inject JavaFX OSGi Helper")
   /** URL class loader with jfxrt.jar */
-  val rtLoader = new URLClassLoader(Array(library.getCanonicalFile().toURI().toURL()), null)
+  val rtLoader = new URLClassLoader(Array(new URL(library.getCanonicalFile().toURI().toASCIIString())), null)
 
   /**
    * Gets called by a classpath manager before defining a class.  This method allows a class loading hook

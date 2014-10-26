@@ -38,8 +38,8 @@ import org.eclipse.osgi.internal.baseadaptor.BaseStorageHook
 import org.eclipse.osgi.internal.profile.Profile
 import org.eclipse.osgi.service.resolver.{ BundleDescription, BundleSpecification, ImportPackageSpecification, VersionConstraint }
 import org.eclipse.osgi.util.NLS
-import org.osgi.framework.{ Bundle, BundleContext, BundleEvent, BundleListener, Constants, ServiceReference, ServiceRegistration }
 import org.osgi.framework.wiring.FrameworkWiring
+import org.osgi.framework.{ Bundle, BundleContext, BundleEvent, BundleListener, Constants, ServiceReference, ServiceRegistration }
 import org.osgi.service.log.{ LogEntry, LogListener, LogReaderService, LogService }
 import org.osgi.util.tracker.{ ServiceTracker, ServiceTrackerCustomizer }
 import org.slf4j.LoggerFactory
@@ -503,9 +503,14 @@ class FrameworkLauncher extends BundleListener with XLoggable {
   }
   object Properties {
     def initialize(configLocation: File) {
+      // Shit in org.eclipse.osgi.
+      // java.lang.IllegalArgumentException: Switch error decoding URL
+      //  at org.eclipse.osgi.framework.internal.core.FrameworkProperties.hexToByte(FrameworkProperties.java:245)
+      //  at org.eclipse.osgi.framework.internal.core.FrameworkProperties.decode(FrameworkProperties.java:189)
+      //  at org.eclipse.osgi.framework.internal.core.FrameworkProperties.initializeProperties(FrameworkProperties.java:137)
       FrameworkProperties.initializeProperties()
       LocationManager.initializeLocations()
-      merge(FrameworkProperties.getProperties(), load(configLocation.toURI.toURL))
+      merge(FrameworkProperties.getProperties(), load(new URL(configLocation.toURI.toASCIIString())))
       finalizeInitialization()
       if (Profile.PROFILE)
         Profile.initProps() // catch any Profile properties set in eclipse.properties...

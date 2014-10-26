@@ -92,7 +92,7 @@ class SupportBundleLocator extends XLoggable {
     try {
       // quick check to see if the name is a valid URL
       new URL(name)
-      url = new URL(new File(parent).toURI().toURL(), name)
+      url = new URL(new URL(new File(parent).toURI().toASCIIString()), name)
     } catch {
       case e: MalformedURLException ⇒
         // TODO this is legacy support for non-URL names.  It should be removed eventually.

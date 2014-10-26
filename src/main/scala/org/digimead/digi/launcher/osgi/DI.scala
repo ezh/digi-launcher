@@ -85,7 +85,7 @@ class DI extends XLoggable {
           case e: URISyntaxException ⇒
             new File(URLDecoder.decode(urlUnfiltered.getPath(), "UTF-8"))
         }
-        Some(fileUnfiltered.getCanonicalFile().toURI.toURL)
+        Some(new URL(fileUnfiltered.getCanonicalFile().toURI.toASCIIString()))
       case other ⇒
         log.debug("Skip classpath entry " + other)
         None

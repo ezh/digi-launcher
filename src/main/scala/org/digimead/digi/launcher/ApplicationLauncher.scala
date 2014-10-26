@@ -26,6 +26,7 @@ import java.net.URL
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.{ Callable, ConcurrentLinkedQueue, CountDownLatch }
 import java.util.zip.ZipInputStream
+import javax.activation.URLDataSource
 import org.digimead.digi.launcher.api.XLauncher
 import org.digimead.digi.launcher.report.ReportAppender
 import org.digimead.digi.launcher.report.api.XReport
@@ -36,6 +37,7 @@ import org.eclipse.core.runtime.internal.adaptor.{ EclipseAdaptorMsg, EclipseApp
 import org.eclipse.osgi.framework.debug.FrameworkDebugOptions
 import org.eclipse.osgi.framework.internal.core.ConsoleManager
 import org.eclipse.osgi.framework.internal.core.FrameworkProperties
+import org.eclipse.osgi.util.NLS
 import org.osgi.framework.Bundle
 import org.osgi.framework.BundleContext
 import org.osgi.framework.BundleException
@@ -66,7 +68,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   /** The console and port */
   val console = injectOptional[Option[String]](org.eclipse.core.runtime.adaptor.EclipseStarter.PROP_CONSOLE)
   /** Path to the directory with application data. */
-  val data = inject[File]("Launcher.Data")
+  val root = inject[File]("Launcher.Root")
   /** A boolean flag indicating whether or not to be debugging enabled. */
   val debug = injectOptional[Boolean]("Launcher.Debug") getOrElse false
   /** Look for the debug mode and option file location. */
@@ -100,7 +102,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   /** OSGi framework launcher class. */
   val frameworkLauncherClass = injectOptional[Class[FrameworkLauncher]] getOrElse classOf[FrameworkLauncher]
   /** The data location for this instance. */
-  val instanceArea = injectOptional[URL](LocationManager.PROP_INSTANCE_AREA) getOrElse locationConfigurationArea.toURI().toURL()
+  val instanceArea = injectOptional[URL](LocationManager.PROP_INSTANCE_AREA) getOrElse new URL(locationConfigurationArea.toURI().toASCIIString())
   /** The launcher location. */
   val launcher = injectOptional[String](osgi.Framework.PROP_LAUNCHER)
   /** Maximum operation (start/stop/restart) duration */
@@ -129,7 +131,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   val frameworkLauncher: FrameworkLauncher = getClass.getClassLoader().
     loadClass(frameworkLauncherClass.getName).newInstance().asInstanceOf[FrameworkLauncher]
   /** Location of osgi.configuration.area, ../configuration */
-  lazy val locationConfigurationArea = new File(data, "configuration")
+  lazy val locationConfigurationArea = new File(root, "configuration")
   /** Location of config.ini (that was located at osgi.configuration.area by design :-) ) */
   lazy val frameworkConfiguration = new File(bundles, LocationManager.CONFIG_FILE)
   /** Location of .options file with debug options */
@@ -160,7 +162,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   /** Validate class state after initialization. */
   def checkAfterInitialization {
     assert(bundles.isDirectory() && bundles.canRead() && bundles.isAbsolute(), s"Bundles directory '${bundles}' is inaccessable or relative.")
-    assert(data.isDirectory() && data.canRead() && data.isAbsolute(), s"Data directory '${data}' is inaccessable or relative.")
+    assert(root.isDirectory() && root.canRead() && root.isAbsolute(), s"Root directory '${root}' is inaccessable or relative.")
   }
   /** Prepare OSGi framework settings. */
   @log
@@ -175,8 +177,8 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       val baseProperties = Map[String, String](
         "osgi.checkConfiguration" -> "true", // timestamps are check in the configuration cache to ensure that the cache is up to date
         "osgi.classloader.singleThreadLoads" -> "false", //
-        EclipseStarter.PROP_DEBUG -> locationDebugOptions.getAbsolutePath(), // search .options file at the provided location
-        "osgi.install.area" -> data.getAbsoluteFile.toURI.toURL.toString,
+        EclipseStarter.PROP_DEBUG -> locationDebugOptions.toURI().toASCIIString(), // search .options file at the provided location
+        "osgi.install.area" -> root.getAbsoluteFile.toURI.toASCIIString(),
         "osgi.noShutdown" -> "true", // the OSGi Framework will not be shut down after the application has ended
         // This tells framework to use our classloader as parent, so it can see classes that we see
         // org.eclipse.osgi.baseadaptor.BaseAdaptor
@@ -200,6 +202,11 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       } else {
         frameworkLauncher.Properties.setInitial(baseProperties)
       }
+      // Shit in org.eclipse.osgi.
+      // java.lang.IllegalArgumentException: Switch error decoding URL
+      //  at org.eclipse.osgi.framework.internal.core.FrameworkProperties.hexToByte(FrameworkProperties.java:245)
+      //  at org.eclipse.osgi.framework.internal.core.FrameworkProperties.decode(FrameworkProperties.java:189)
+      //  at org.eclipse.osgi.framework.internal.core.FrameworkProperties.initializeProperties(FrameworkProperties.java:137)
       FrameworkProperties.initializeProperties()
       LocationManager.initializeLocations()
       FrameworkDebugOptions.getDefault()

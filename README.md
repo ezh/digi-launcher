@@ -5,6 +5,8 @@ OSGi framework launcher for Equinox environment.
 
 [See Digi-Launcher documentation](http://ezh.github.io/digi-launcher/).
 
+__Required Java 7 or higher__
+
 AUTHORS
 -------
 
@@ -21,6 +23,6 @@ Please check the individual source files for details.
 Copyright
 ---------
 
-Copyright © 2013 Alexey B. Aksenov/Ezh. All rights reserved.
+Copyright © 2013-2014 Alexey B. Aksenov/Ezh. All rights reserved.
 
 [![GNU Lesser General Public License](http://www.gnu.org/graphics/lgplv3-147x51.png)](http://www.gnu.org/licenses/lgpl.html)

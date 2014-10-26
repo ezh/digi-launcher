@@ -48,7 +48,7 @@ class Launcher(implicit val bindingModule: BindingModule)
   /** Path to the directory with OSGi bundles. */
   val bundles: File = inject[File]("Launcher.Bundles")
   /** Path to the directory with application data. */
-  val data: File = inject[File]("Launcher.Data")
+  val root: File = inject[File]("Launcher.Root")
   //
   // Implementation variables
   //
@@ -74,10 +74,10 @@ class Launcher(implicit val bindingModule: BindingModule)
     val frameworkBundleName = new File(locationOSGi.toURI).getName
     // This is the only println() in launcher. We haven't logging yet.
     System.out.println("Construct application environment:")
-    System.out.println("\t launcher: " + locationLauncher)
-    System.out.println("\t OSGi framework: " + locationOSGi)
+    System.out.println("\t launcher: " + new File(locationLauncher.toURI()).getCanonicalPath())
+    System.out.println("\t OSGi framework: " + new File(locationOSGi.toURI()).getCanonicalPath())
     System.out.println("\t OSGi bundles: " + bundles)
-    System.out.println("\t data directory: " + data)
+    System.out.println("\t data directory: " + root)
     constructor.newInstance(bindingModule)
   }.asInstanceOf[{
     def getBundleClass(bundleSymbolicName: String, singletonClassName: String): Class[_]
@@ -85,7 +85,7 @@ class Launcher(implicit val bindingModule: BindingModule)
     def run(waitForTermination: Boolean, mainQueue: ConcurrentLinkedQueue[Runnable], shutdownHandler: Option[Runnable])
   }]
   assert(bundles.isDirectory() && bundles.canRead() && bundles.isAbsolute(), s"Bundles directory '${bundles}' is inaccessable or relative.")
-  assert(data.isDirectory() && data.canRead() && data.isAbsolute(), s"Data directory '${data}' is inaccessable or relative.")
+  assert(root.isDirectory() && root.canRead() && root.isAbsolute(), s"Root directory '${root}' is inaccessable or relative.")
 
   /** Prepare OSGi framework settings. */
   @log
@@ -106,7 +106,7 @@ class Launcher(implicit val bindingModule: BindingModule)
       case url if url.getProtocol() == "jar" ⇒
         new URL(url.getFile().takeWhile(_ != '!'))
       case url ⇒
-        val path = url.toURI().toString()
+        val path = url.toURI().toASCIIString()
         new URI(path.substring(0, path.length() - classPath.length())).toURL
     }
   }

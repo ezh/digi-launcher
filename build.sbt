@@ -55,12 +55,8 @@ scalaVersion := "2.11.2"
 
 scalacOptions ++= Seq("-encoding", "UTF-8", "-deprecation", "-unchecked", "-Xcheckinit", "-feature")
 
-// http://vanillajava.blogspot.ru/2012/02/using-java-7-to-target-much-older-jvms.html
-javacOptions ++= Seq("-Xlint:unchecked", "-Xlint:deprecation", "-source", "1.7", "-target", "1.7")
+javacOptions ++= Seq("-Xlint:unchecked", "-Xlint:deprecation")
 
-javacOptions in doc := Seq("-source", "1.7")
-
-if (sys.env.contains("XBOOTCLASSPATH")) Seq(javacOptions += "-Xbootclasspath:" + sys.env("XBOOTCLASSPATH")) else Seq()
 
 //
 // Custom local options
@@ -69,10 +65,9 @@ if (sys.env.contains("XBOOTCLASSPATH")) Seq(javacOptions += "-Xbootclasspath:" +
 resolvers += "digimead-maven" at "http://storage.googleapis.com/maven.repository.digimead.org/"
 
 libraryDependencies ++= Seq(
-    "org.scala-lang" % "scala-compiler" % "2.11.2",
-    "org.digimead" %% "digi-lib" % "0.3.0.0-SNAPSHOT",
-    "org.digimead" %% "digi-lib-test" % "0.3.0.0-SNAPSHOT" % "test",
-    "org.eclipse" % "org.eclipse.osgi" % "3.8.0.v20120529-1548",
+    "org.digimead" %% "digi-lib" % "0.3.0.1",
+    "org.digimead" %% "digi-lib-test" % "0.3.0.1" % "test",
+    "org.eclipse" % "osgi" % "3.9.1-v20130814-1242",
     "org.osgi" % "org.osgi.core" % "5.0.0",
     "org.osgi" % "org.osgi.compendium" % "4.3.1"
   )
