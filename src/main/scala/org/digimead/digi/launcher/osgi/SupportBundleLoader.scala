@@ -197,7 +197,7 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends XLog
           }
           // always set the startlevel incase it has changed (bug 111549)
           // this is a no-op if the level is the same as previous launch.
-          if ((osgiBundle.getState() & Bundle.UNINSTALLED) == 0 && initialBundle.level >= 0 && startService != null)
+          if (osgiBundle.getBundleId() != 0 && (osgiBundle.getState() & Bundle.UNINSTALLED) == 0 && initialBundle.level >= 0 && startService != null)
             startService.setBundleStartLevel(osgiBundle, initialBundle.level);
           // if this bundle is supposed to be started then add it to the start list
           if (initialBundle.start)
