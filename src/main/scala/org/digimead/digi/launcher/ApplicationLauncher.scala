@@ -133,7 +133,8 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
   /** Location of osgi.configuration.area, ../configuration */
   lazy val locationConfigurationArea = new File(root, "configuration")
   /** Location of config.ini (that was located at osgi.configuration.area by design :-) ) */
-  lazy val frameworkConfiguration = new File(bundles, LocationManager.CONFIG_FILE)
+  lazy val frameworkConfiguration = injectOptional[File](LocationManager.CONFIG_FILE) getOrElse
+    new File(bundles, LocationManager.CONFIG_FILE)
   /** Location of .options file with debug options */
   lazy val locationDebugOptions = new File(locationConfigurationArea, ".options")
   /** User shutdown hook. */
@@ -539,7 +540,7 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
       val buffer = new StringWriter()
       val writer = new PrintWriter(buffer)
       val properties = FrameworkProperties.getProperties()
-      writer.println("\n-- listing OSGi startup properties --")
+      writer.println("\n-- listing OSGi initial properties --")
       properties.stringPropertyNames().toList.sorted.foreach { name ⇒
         writer.println("%s=%s".format(name, properties.getProperty(name)))
       }

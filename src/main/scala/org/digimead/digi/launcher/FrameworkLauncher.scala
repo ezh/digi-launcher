@@ -21,7 +21,7 @@
 package org.digimead.digi.launcher
 
 import com.escalatesoft.subcut.inject.BindingModule
-import java.io.{ File, IOException }
+import java.io.{ File, IOException, PrintWriter, StringWriter }
 import java.lang.reflect.InvocationTargetException
 import java.net.URL
 import java.util.Properties
@@ -512,6 +512,16 @@ class FrameworkLauncher extends BundleListener with XLoggable {
       LocationManager.initializeLocations()
       merge(FrameworkProperties.getProperties(), load(new URL(configLocation.toURI.toASCIIString())))
       finalizeInitialization()
+      // Dump startup properties
+      val buffer = new StringWriter()
+      val writer = new PrintWriter(buffer)
+      val properties = FrameworkProperties.getProperties()
+      writer.println("\n-- listing OSGi startup properties --")
+      properties.stringPropertyNames().toList.sorted.foreach { name ⇒
+        writer.println("%s=%s".format(name, properties.getProperty(name)))
+      }
+      writer.close()
+      log.debug(buffer.toString)
       if (Profile.PROFILE)
         Profile.initProps() // catch any Profile properties set in eclipse.properties...
     }

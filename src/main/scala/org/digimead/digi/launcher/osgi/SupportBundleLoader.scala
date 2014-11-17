@@ -245,7 +245,6 @@ class SupportBundleLoader(val supportLocator: SupportBundleLocator) extends XLog
       context.addBundleListener(listener)
       startLevel.setStartLevel(frameworkStartLevel)
       context.ungetService(reference)
-      //updateSplash(semaphore, listener)
     }
   }
   @log
