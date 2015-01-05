@@ -1,7 +1,7 @@
 /**
  * Digi-Launcher - OSGi framework launcher for Equinox environment.
  *
- * Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
+ * Copyright (c) 2013-2015 Alexey Aksenov ezh@ezh.msk.ru
  * All rights reserved.
  *
  * This program is free software: you can redistribute it and/or modify it under
@@ -22,7 +22,7 @@ package org.digimead.digi.launcher
 
 import com.escalatesoft.subcut.inject.{ BindingModule, Injectable }
 import java.io.{ BufferedReader, File, IOException, InputStreamReader, PipedInputStream, PipedOutputStream, PrintStream, PrintWriter, StringWriter }
-import java.net.URL
+import java.net.{ URL, URLDecoder }
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.{ Callable, ConcurrentLinkedQueue, CountDownLatch }
 import java.util.zip.ZipInputStream
@@ -469,7 +469,9 @@ class ApplicationLauncher(implicit val bindingModule: BindingModule)
     arch.foreach(arg ⇒ properties(EclipseStarter.PROP_ARCH) = arg.toString)
     nl.foreach(arg ⇒ properties(EclipseStarter.PROP_NL) = arg.toString)
     nlExtensions.foreach(arg ⇒ properties(osgi.Framework.PROP_NL_EXTENSIONS) = arg.toString)
-    properties(LocationManager.PROP_INSTANCE_AREA) = instanceArea.toString
+    // Eclipse is not support encoded URL. LOL :-(
+    // PROP_INSTANCE_AREA must not be encoded.
+    properties(LocationManager.PROP_INSTANCE_AREA) = URLDecoder.decode(instanceArea.toString, "UTF-8")
     properties(EclipseStarter.PROP_BUNDLES_STARTLEVEL) = defaultBundlesStartLevel.toString
     properties(EclipseStarter.PROP_EXTENSIONS) = extensionBundles.mkString(",")
     properties(EclipseStarter.PROP_INITIAL_STARTLEVEL) = defaultInitialStartLevel.toString
