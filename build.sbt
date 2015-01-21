@@ -1,7 +1,7 @@
 //
 // Digi-Launcher - OSGi framework launcher for Equinox environment.
 //
-// Copyright (c) 2013-2014 Alexey Aksenov ezh@ezh.msk.ru
+// Copyright (c) 2013-2015 Alexey Aksenov ezh@ezh.msk.ru
 // All rights reserved.
 //
 // This program is free software: you can redistribute it and/or modify it under
@@ -42,16 +42,16 @@ inConfig(OSGiConf)({
   import OSGiKey._
   Seq[Project.Setting[_]](
     osgiBndBundleSymbolicName := "org.digimead.digi.launcher",
-    osgiBndBundleCopyright := "Copyright © 2013-2014 Alexey B. Aksenov/Ezh. All rights reserved.",
+    osgiBndBundleCopyright := "Copyright © 2013-2015 Alexey B. Aksenov/Ezh. All rights reserved.",
     osgiBndExportPackage := List("org.digimead.*"),
     osgiBndImportPackage := List("!org.aspectj.*", "*"),
     osgiBndBundleLicense := "http://www.gnu.org/licenses/lgpl-3.0.txt;description=GNU Lesser General Public License, Version 3.0"
   )
 })
 
-crossScalaVersions := Seq("2.11.2")
+crossScalaVersions := Seq("2.11.5")
 
-scalaVersion := "2.11.2"
+scalaVersion := "2.11.5"
 
 scalacOptions ++= Seq("-encoding", "UTF-8", "-deprecation", "-unchecked", "-Xcheckinit", "-feature")
 
@@ -65,8 +65,8 @@ javacOptions ++= Seq("-Xlint:unchecked", "-Xlint:deprecation")
 resolvers += "digimead-maven" at "http://storage.googleapis.com/maven.repository.digimead.org/"
 
 libraryDependencies ++= Seq(
-    "org.digimead" %% "digi-lib" % "0.3.0.1",
-    "org.digimead" %% "digi-lib-test" % "0.3.0.1" % "test",
+    "org.digimead" %% "digi-lib" % "0.3.0.2",
+    "org.digimead" %% "digi-lib-test" % "0.3.0.2" % "test",
     "org.eclipse" % "osgi" % "3.9.1-v20130814-1242",
     "org.osgi" % "org.osgi.core" % "5.0.0",
     "org.osgi" % "org.osgi.compendium" % "4.3.1"
